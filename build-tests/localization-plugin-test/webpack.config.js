@@ -4,6 +4,7 @@ const path = require('path');
 const webpack = require('webpack');
 
 const { LocalizationPlugin } = require('@rushstack/localization-plugin');
+const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 
 module.exports = function(env) {
   const configuration = {
@@ -73,6 +74,14 @@ module.exports = function(env) {
         serveLocale: {
           locale: 'en-us'
         }
+      }),
+      new BundleAnalyzerPlugin({
+        openAnalyzer: false,
+        analyzerMode: 'static',
+        reportFilename: path.join(__dirname, 'temp', 'stats.html'),
+        generateStatsFile: true,
+        statsFilename: path.join(__dirname, 'temp', 'stats.json'),
+        logLevel: 'error'
       })
     ]
   };
