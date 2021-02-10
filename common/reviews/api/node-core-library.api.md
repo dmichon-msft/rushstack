@@ -757,9 +757,12 @@ export class Text {
     static convertToLf(input: string): string;
     static ensureTrailingNewline(s: string, newlineKind?: NewlineKind): string;
     static getNewline(newlineKind: NewlineKind): string;
+    // @deprecated
     static padEnd(s: string, minimumLength: number, paddingCharacter?: string): string;
+    // @deprecated
     static padStart(s: string, minimumLength: number, paddingCharacter?: string): string;
     static replaceAll(input: string, searchValue: string, replaceValue: string): string;
+    static splitAsIterable(s: string, delimiter: string): Iterable<string>;
     static truncateWithEllipsis(s: string, maximumLength: number): string;
 }
 
