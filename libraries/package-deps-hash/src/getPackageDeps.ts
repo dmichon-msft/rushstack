@@ -3,7 +3,7 @@
 
 import * as child_process from 'child_process';
 import * as path from 'path';
-import { Executable } from '@rushstack/node-core-library';
+import { Executable, Text } from '@rushstack/node-core-library';
 
 /**
  * Parses a quoted filename sourced from the output of the "git status" command.
@@ -50,26 +50,24 @@ export function parseGitLsTree(output: string): Map<string, string> {
   const changes: Map<string, string> = new Map<string, string>();
 
   if (output) {
-    // A line is expected to look like:
-    // 100644 blob 3451bccdc831cb43d7a70ed8e628dcf9c7f888c8    src/typings/tsd.d.ts
-    // 160000 commit c5880bf5b0c6c1f2e2c43c95beeb8f0a808e8bac  rushstack
-    const gitRegex: RegExp = /([0-9]{6})\s(blob|commit)\s([a-f0-9]{40})\s*(.*)/;
+    // According to the spec, a line consists of
+    //100644 blob 3451bccdc831cb43d7a70ed8e628dcf9c7f888c8\tsrc/typings/tsd.d.ts\x00
+    //160000 commit c5880bf5b0c6c1f2e2c43c95beeb8f0a808e8bac\trushstack\x00
 
-    // Note: The output of git ls-tree uses \n newlines regardless of OS.
-    const outputLines: string[] = output.trim().split('\n');
-    for (const line of outputLines) {
-      if (line) {
-        // Take everything after the "100644 blob", which is just the hash and filename
-        const matches: RegExpMatchArray | null = line.match(gitRegex);
-        if (matches && matches[3] && matches[4]) {
-          const hash: string = matches[3];
-          const filename: string = parseGitFilename(matches[4]);
-
-          changes.set(filename, hash);
-        } else {
-          throw new Error(`Cannot parse git ls-tree input: "${line}"`);
-        }
+    for (const line of Text.splitAsIterable(output, '\x00')) {
+      if (!line) {
+        continue;
       }
+
+      const hashEnd: number = line.indexOf('\t');
+      if (hashEnd < 52 || hashEnd > line.length - 2) {
+        throw new Error(`Cannot parse git ls-tree input: "${line}"`);
+      }
+
+      const hash: string = line.slice(hashEnd - 40, hashEnd);
+      const filename: string = line.slice(hashEnd + 1);
+
+      changes.set(filename, hash);
     }
   }
 
@@ -183,7 +181,7 @@ export function getGitHashForFiles(
 export function gitLsTree(path: string, gitPath?: string): string {
   const result: child_process.SpawnSyncReturns<string> = Executable.spawnSync(
     gitPath || 'git',
-    ['ls-tree', 'HEAD', '-r'],
+    ['--no-optional-locks', 'ls-tree', 'HEAD', '-r', '-z'],
     {
       currentWorkingDirectory: path
     }
@@ -210,7 +208,7 @@ export function gitStatus(path: string, gitPath?: string): string {
    */
   const result: child_process.SpawnSyncReturns<string> = Executable.spawnSync(
     gitPath || 'git',
-    ['status', '-s', '-u', '.'],
+    ['--no-optional-locks', 'status', '-s', '-u', '.'],
     {
       currentWorkingDirectory: path
     }

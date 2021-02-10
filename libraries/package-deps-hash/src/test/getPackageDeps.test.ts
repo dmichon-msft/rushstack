@@ -38,7 +38,7 @@ describe('parseGitLsTree', () => {
     const filename: string = 'src/typings/tsd.d.ts';
     const hash: string = '3451bccdc831cb43d7a70ed8e628dcf9c7f888c8';
 
-    const output: string = `100644 blob ${hash}\t${filename}`;
+    const output: string = `100644 blob ${hash}\t${filename}\0`;
     const changes: Map<string, string> = parseGitLsTree(output);
 
     expect(changes.size).toEqual(1); // Expect there to be exactly 1 change
@@ -65,7 +65,7 @@ describe('parseGitLsTree', () => {
     const filename2: string = 'src/foo bar/tsd.d.ts';
     const hash2: string = '0123456789abcdef1234567890abcdef01234567';
 
-    const output: string = `100644 blob ${hash1}\t${filename1}\n100666 blob ${hash2}\t${filename2}`;
+    const output: string = `100644 blob ${hash1}\t${filename1}\x00100666 blob ${hash2}\t${filename2}\x00`;
     const changes: Map<string, string> = parseGitLsTree(output);
 
     expect(changes.size).toEqual(2); // Expect there to be exactly 2 changes
