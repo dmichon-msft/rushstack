@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
+import { Text } from '@rushstack/node-core-library';
+
 /**
  * A node in the path tree used in LookupByPath
  */
@@ -70,23 +72,8 @@ export class LookupByPath<TItem> {
    *
    * `LookupByPath.iteratePathSegments('foo\\bar\\baz', '\\')` yields 'foo', 'bar', 'baz'
    */
-  public static *iteratePathSegments(serializedPath: string, delimiter: string = '/'): Iterable<string> {
-    if (!serializedPath) {
-      return;
-    }
-
-    let nextIndex: number = serializedPath.indexOf(delimiter);
-    let previousIndex: number = 0;
-    while (nextIndex >= 0) {
-      yield serializedPath.slice(previousIndex, nextIndex);
-
-      previousIndex = nextIndex + 1;
-      nextIndex = serializedPath.indexOf(delimiter, previousIndex);
-    }
-
-    if (previousIndex + 1 < serializedPath.length) {
-      yield serializedPath.slice(previousIndex);
-    }
+  public static iteratePathSegments(serializedPath: string, delimiter: string = '/'): Iterable<string> {
+    return Text.splitAsIterable(serializedPath, delimiter);
   }
 
   /**

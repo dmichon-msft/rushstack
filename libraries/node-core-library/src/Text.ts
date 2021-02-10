@@ -99,6 +99,7 @@ export class Text {
 
   /**
    * Append characters to the end of a string to ensure the result has a minimum length.
+   * @deprecated Use s.padEnd(minimumLength, paddingString) in all supported Node LTS versions
    * @remarks
    * If the string length already exceeds the minimum length, then the string is unchanged.
    * The string is not truncated.
@@ -119,6 +120,7 @@ export class Text {
 
   /**
    * Append characters to the start of a string to ensure the result has a minimum length.
+   * @deprecated Use s.padStart(minimumLength, paddingString) in all supported Node LTS versions
    * @remarks
    * If the string length already exceeds the minimum length, then the string is unchanged.
    * The string is not truncated.
@@ -169,5 +171,32 @@ export class Text {
       return s; // yes, no change
     }
     return s + newlineKind; // no, add it
+  }
+
+  /**
+   * Similar to `s.split(delimiter)`, optimized for scenarios where the elements are iterated sequentially
+   * but incompletely. Splitting an empty string returns an empty sequence.
+   *
+   * @remarks
+   * `splitAsIterable('100x300x400', 'x')` would produce the sequence '100', '300', '400'
+   * `splitAsIterable('', <anything>)` produces an empty sequence
+   */
+  public static *splitAsIterable(s: string, delimiter: string): Iterable<string> {
+    if (!s) {
+      return;
+    }
+
+    let nextIndex: number = s.indexOf(delimiter);
+    let previousIndex: number = 0;
+    while (nextIndex >= 0) {
+      yield s.slice(previousIndex, nextIndex);
+
+      previousIndex = nextIndex + 1;
+      nextIndex = s.indexOf(delimiter, previousIndex);
+    }
+
+    if (previousIndex + 1 < s.length) {
+      yield s.slice(previousIndex);
+    }
   }
 }

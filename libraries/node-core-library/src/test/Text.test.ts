@@ -98,4 +98,23 @@ describe('Text', () => {
       expect(Text.convertToLf('\r \n')).toEqual('\n \n');
     });
   });
+
+  describe('splitAsIterable', () => {
+    it('returns empty for an empty string', () => {
+      const result = [...Text.splitAsIterable('', 'x')];
+      expect(result.length).toEqual(0);
+    });
+    it('returns the only segment of a trival string', () => {
+      const result = [...Text.splitAsIterable('foo', 'z')];
+      expect(result).toEqual(['foo']);
+    });
+    it('ignores characters that are not the delimiter', () => {
+      const result = [...Text.splitAsIterable('foo\\bar\\baz', '/')];
+      expect(result).toEqual(['foo\\bar\\baz']);
+    });
+    it('iterates segments', () => {
+      const result = [...Text.splitAsIterable('foo/bar/baz', '/')];
+      expect(result).toEqual(['foo', 'bar', 'baz']);
+    });
+  });
 });
