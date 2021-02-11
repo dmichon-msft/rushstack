@@ -2,14 +2,11 @@
 // See LICENSE in the project root for license information.
 
 import { EOL } from 'os';
-import colors from 'colors';
 import { PackageJsonLookup } from '@rushstack/node-core-library';
 
 import { RushCommandLineParser } from '../cli/RushCommandLineParser';
 import { RushConstants } from '../logic/RushConstants';
-import { RushXCommandLine } from '../cli/RushXCommandLine';
 import { CommandLineMigrationAdvisor } from '../cli/CommandLineMigrationAdvisor';
-import { NodeJsCompatibility } from '../logic/NodeJsCompatibility';
 import { Utilities } from '../utilities/Utilities';
 
 /**
@@ -80,9 +77,11 @@ export class Rush {
    * @param launcherVersion - The version of the `@microsoft/rush` wrapper used to call invoke the CLI.
    */
   public static launchRushX(launcherVersion: string, options: ILaunchOptions): void {
-    options = Rush._normalizeLaunchOptions(options);
+    const normalizedOptions: ILaunchOptions = Rush._normalizeLaunchOptions(options);
 
-    Rush._printStartupBanner(options.isManaged);
+    Rush._printStartupBanner(normalizedOptions.isManaged);
+
+    const { RushXCommandLine }: typeof import('../cli/RushXCommandLine') = require('../cli/RushXCommandLine');
 
     RushXCommandLine._launchRushXInternal(launcherVersion, { ...options });
   }
@@ -109,6 +108,11 @@ export class Rush {
   }
 
   private static _printStartupBanner(isManaged: boolean): void {
+    const {
+      NodeJsCompatibility
+    }: typeof import('../logic/NodeJsCompatibility') = require('../logic/NodeJsCompatibility');
+    const colors: typeof import('colors/safe') = require('colors/safe');
+
     const nodeVersion: string = process.versions.node;
     const nodeReleaseLabel: string = NodeJsCompatibility.isOddNumberedVersion
       ? 'unstable'
