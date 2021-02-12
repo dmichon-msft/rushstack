@@ -10,10 +10,7 @@ import {
   Terminal
 } from '@rushstack/node-core-library';
 
-import {
-  AzureEnvironmentNames,
-  AzureStorageBuildCacheProvider
-} from '../logic/buildCache/AzureStorageBuildCacheProvider';
+import { AzureEnvironmentNames } from '../logic/buildCache/AzureStorageBuildCacheProvider';
 import { RushConfiguration } from './RushConfiguration';
 import { FileSystemBuildCacheProvider } from '../logic/buildCache/FileSystemBuildCacheProvider';
 import { RushConstants } from '../logic/RushConstants';
@@ -99,6 +96,9 @@ export class BuildCacheConfiguration {
 
       case 'azure-blob-storage': {
         const azureStorageBuildCacheJson: IAzureBlobStorageBuildCacheJson = buildCacheJson as IAzureBlobStorageBuildCacheJson;
+        const {
+          AzureStorageBuildCacheProvider
+        } = require('../logic/buildCache/AzureStorageBuildCacheProvider');
         const azureStorageConfigurationJson: IAzureStorageConfigurationJson =
           azureStorageBuildCacheJson.azureBlobStorageConfiguration;
         this.cloudCacheProvider = new AzureStorageBuildCacheProvider({
