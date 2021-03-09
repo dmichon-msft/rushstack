@@ -226,11 +226,7 @@ export abstract class BaseInstallManager {
           true;
 
       if (this.options.allowShrinkwrapUpdates && (usePnpmFrozenLockfile || !shrinkwrapIsUpToDate)) {
-        // Copy (or delete) common\temp\pnpm-lock.yaml --> common\config\rush\pnpm-lock.yaml
-        Utilities.syncFile(
-          this._rushConfiguration.tempShrinkwrapFilename,
-          this._rushConfiguration.getCommittedShrinkwrapFilename(this.options.variant)
-        );
+        this.commitShrinkwrapChangesAsync();
       } else {
         // TODO: Validate whether the package manager updated it in a nontrivial way
       }
@@ -267,6 +263,14 @@ export abstract class BaseInstallManager {
   protected abstract installAsync(cleanInstall: boolean): Promise<void>;
 
   protected abstract postInstallAsync(): Promise<void>;
+
+  protected async commitShrinkwrapChangesAsync(): Promise<void> {
+    // Copy (or delete) common\temp\pnpm-lock.yaml --> common\config\rush\pnpm-lock.yaml
+    Utilities.syncFile(
+      this._rushConfiguration.tempShrinkwrapFilename,
+      this._rushConfiguration.getCommittedShrinkwrapFilename(this.options.variant)
+    );
+  }
 
   protected async prepareAsync(): Promise<{ variantIsUpToDate: boolean; shrinkwrapIsUpToDate: boolean }> {
     // Check the policies

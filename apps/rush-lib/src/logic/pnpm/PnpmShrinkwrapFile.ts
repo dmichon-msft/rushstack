@@ -195,12 +195,18 @@ export class PnpmShrinkwrapFile extends BaseShrinkwrapFile {
    */
   public readonly shrinkwrapFilename: string;
 
-  private _shrinkwrapJson: IPnpmShrinkwrapYaml;
+  private readonly _shrinkwrapJson: IPnpmShrinkwrapYaml;
+  private readonly _pnpmOptions: PnpmOptionsConfiguration;
 
-  private constructor(shrinkwrapJson: IPnpmShrinkwrapYaml, shrinkwrapFilename: string) {
+  private constructor(
+    shrinkwrapJson: IPnpmShrinkwrapYaml,
+    shrinkwrapFilename: string,
+    pnpmOptions: PnpmOptionsConfiguration
+  ) {
     super();
     this._shrinkwrapJson = shrinkwrapJson;
     this.shrinkwrapFilename = shrinkwrapFilename;
+    this._pnpmOptions = pnpmOptions;
 
     // Normalize the data
     if (!this._shrinkwrapJson.registry) {
@@ -231,10 +237,15 @@ export class PnpmShrinkwrapFile extends BaseShrinkwrapFile {
 
       const shrinkwrapContent: string = FileSystem.readFile(shrinkwrapYamlFilename);
       const parsedData: IPnpmShrinkwrapYaml = yamlModule.safeLoad(shrinkwrapContent);
-      return new PnpmShrinkwrapFile(parsedData, shrinkwrapYamlFilename);
+      return new PnpmShrinkwrapFile(parsedData, shrinkwrapYamlFilename, pnpmOptions);
     } catch (error) {
       throw new Error(`Error reading "${shrinkwrapYamlFilename}":${os.EOL}  ${error.message}`);
     }
+  }
+
+  /** @override */
+  public save(filePath: string): void {
+    FileSystem.writeFile(filePath, this.serialize());
   }
 
   public getShrinkwrapHash(): string {
