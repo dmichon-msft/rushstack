@@ -18,6 +18,7 @@ import { trueCasePathSync } from 'true-case-path';
 
 import { Rush } from '../api/Rush';
 import { RushConfigurationProject, IRushConfigurationProjectJson } from './RushConfigurationProject';
+import { RushUserConfiguration } from './RushUserConfiguration';
 import { RushConstants } from '../logic/RushConstants';
 import { ApprovedPackagesPolicy } from './ApprovedPackagesPolicy';
 import { EventHooks } from './EventHooks';
@@ -364,7 +365,9 @@ export class PnpmOptionsConfiguration extends PackageManagerOptionsConfiguration
   /** @internal */
   public constructor(json: IPnpmOptionsJson, commonTempFolder: string) {
     super(json);
+
     this.pnpmStore = json.pnpmStore || 'local';
+
     if (EnvironmentConfiguration.pnpmStorePathOverride) {
       this.pnpmStorePath = EnvironmentConfiguration.pnpmStorePathOverride;
     } else if (this.pnpmStore === 'global') {
@@ -462,6 +465,9 @@ export class RushConfiguration {
   private _suppressNodeLtsWarning: boolean;
   private _variants: Set<string>;
   private _projectByRelativePath: LookupByPath<RushConfigurationProject>;
+
+  // User settings
+  private readonly _userConfiguration: RushUserConfiguration;
 
   // "approvedPackagesPolicy" feature
   private _approvedPackagesPolicy: ApprovedPackagesPolicy;
@@ -562,6 +568,8 @@ export class RushConfiguration {
       RushConstants.experimentsFilename
     );
     this._experimentsConfiguration = new ExperimentsConfiguration(experimentsConfigFile);
+
+    this._userConfiguration = RushUserConfiguration.initializeSync();
 
     this._npmOptions = new NpmOptionsConfiguration(rushConfigurationJson.npmOptions || {});
     this._pnpmOptions = new PnpmOptionsConfiguration(
@@ -1049,6 +1057,13 @@ export class RushConfiguration {
    */
   public get rushJsonFolder(): string {
     return this._rushJsonFolder;
+  }
+
+  /**
+   * The user's configured global settings, defined in $HOME/.rush-user/settings.json
+   */
+  public get userConfiguration(): RushUserConfiguration {
+    return this._userConfiguration;
   }
 
   /**

@@ -13,6 +13,11 @@
     "buildCacheFolder": {
       "type": "string",
       "description": "If provided, store build cache in the specified folder. Must be an absolute path."
+    },
+
+    "pnpmStoreFolder": {
+      "type": "string",
+      "description": "If provided, store the global pnpm sotre in the specified folder. Must be an absolute path."
     }
   },
   "additionalProperties": false
