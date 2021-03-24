@@ -245,8 +245,7 @@ export class HeftToolsCommandLineParser extends CommandLineParser {
   }
 
   private async _initializePluginsAsync(): Promise<void> {
-    this._pluginManager.initializeDefaultPlugins();
-
+    await this._pluginManager.initializeDefaultPlugins();
     await this._pluginManager.initializePluginsFromConfigFileAsync();
 
     const pluginSpecifiers: string[] = this._preInitializationArgumentValues.plugins || [];

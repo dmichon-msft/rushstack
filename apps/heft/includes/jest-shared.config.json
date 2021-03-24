@@ -7,7 +7,7 @@
   "rootDir": "../../../../",
 
   "//": ["Adding '<rootDir>/src' here enables src/__mocks__ to be used for mocking Node.js system modules."],
-  "roots": ["<rootDir>", "<rootDir>/src"],
+  "roots": ["<rootDir>/src"],
 
   "testURL": "http://localhost/",
 
@@ -30,7 +30,9 @@
   ],
   "coveragePathIgnorePatterns": ["/node_modules/"],
 
-  "transformIgnorePatterns": [],
+  "coverageProvider": "v8",
+  "//": "For web projects, use 'jest-environment-jsdom-sixteen' or newer",
+  "testEnvironment": "node",
 
   "//": "jest-identity-mock-transform returns a proxy for exported key/value pairs, where Webpack would return a module",
   "//": "jest-string-mock-transform returns the filename, where Webpack would return a URL",
@@ -38,9 +40,10 @@
     "\\.(ts|tsx)$": "@rushstack/heft/lib/exports/jest-build-transform.js",
 
     "\\.(css|sass|scss)$": "@rushstack/heft/lib/exports/jest-identity-mock-transform.js",
-
     "\\.(aac|eot|gif|jpeg|jpg|m4a|mp3|mp4|oga|otf|png|svg|ttf|wav|webm|webp|woff|woff2)$": "@rushstack/heft/lib/exports/jest-string-mock-transform.js"
   },
+
+  "transformIgnorePatterns": ["\\.js$"],
 
   "//": [
     "The modulePathIgnorePatterns below accepts these sorts of paths:",

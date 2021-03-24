@@ -13,19 +13,6 @@ import {
   IHeftConfigurationJson
 } from '../utilities/CoreConfigFiles';
 
-// Default plugins
-import { CopyFilesPlugin } from '../plugins/CopyFilesPlugin';
-import { TypeScriptPlugin } from '../plugins/TypeScriptPlugin/TypeScriptPlugin';
-import { DeleteGlobsPlugin } from '../plugins/DeleteGlobsPlugin';
-import { CopyStaticAssetsPlugin } from '../plugins/CopyStaticAssetsPlugin';
-import { ApiExtractorPlugin } from '../plugins/ApiExtractorPlugin/ApiExtractorPlugin';
-import { JestPlugin } from '../plugins/JestPlugin/JestPlugin';
-import { BasicConfigureWebpackPlugin } from '../plugins/Webpack/BasicConfigureWebpackPlugin';
-import { WebpackPlugin } from '../plugins/Webpack/WebpackPlugin';
-import { SassTypingsPlugin } from '../plugins/SassTypingsPlugin/SassTypingsPlugin';
-import { ProjectValidatorPlugin } from '../plugins/ProjectValidatorPlugin';
-import { ToolPackageResolver } from '../utilities/ToolPackageResolver';
-
 export interface IPluginManagerOptions {
   terminal: Terminal;
   heftConfiguration: HeftConfiguration;
@@ -45,19 +32,12 @@ export class PluginManager {
     this._internalHeftSession = options.internalHeftSession;
   }
 
-  public initializeDefaultPlugins(): void {
-    const taskPackageResolver: ToolPackageResolver = new ToolPackageResolver();
-
-    this._applyPlugin(new TypeScriptPlugin(taskPackageResolver));
-    this._applyPlugin(new CopyStaticAssetsPlugin());
-    this._applyPlugin(new CopyFilesPlugin());
-    this._applyPlugin(new DeleteGlobsPlugin());
-    this._applyPlugin(new ApiExtractorPlugin(taskPackageResolver));
-    this._applyPlugin(new JestPlugin());
-    this._applyPlugin(new BasicConfigureWebpackPlugin());
-    this._applyPlugin(new WebpackPlugin());
-    this._applyPlugin(new SassTypingsPlugin());
-    this._applyPlugin(new ProjectValidatorPlugin());
+  public async initializeDefaultPlugins(): Promise<void> {
+    // This is a separate file to eliminate the dependency during unit tests.
+    const { getDefaultPlugins } = await import('./DefaultPlugins');
+    for (const plugin of getDefaultPlugins()) {
+      this._applyPlugin(plugin);
+    }
   }
 
   public initializePlugin(pluginSpecifier: string, options?: object): void {
