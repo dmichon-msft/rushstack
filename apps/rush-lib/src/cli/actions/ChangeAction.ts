@@ -320,27 +320,32 @@ export class ChangeAction extends BaseRushAction {
     if (!changedFolders) {
       return [];
     }
-    const changedPackageNames: Set<string> = new Set<string>();
 
-    const git: Git = new Git(this.rushConfiguration);
-    const repoRootFolder: string | undefined = git.getRepositoryRootPath();
     const projectHostMap: Map<string, string> = this._generateHostMap();
 
-    this.rushConfiguration.projects
-      .filter((project) => project.shouldPublish)
-      .filter((project) => !project.versionPolicy || !project.versionPolicy.exemptFromRushChange)
-      .filter((project) => {
-        const projectFolder: string = repoRootFolder
-          ? path.relative(repoRootFolder, project.projectFolder)
-          : project.projectRelativeFolder;
-        return this._hasProjectChanged(changedFolders, projectFolder);
-      })
-      .forEach((project) => {
-        const hostName: string | undefined = projectHostMap.get(project.packageName);
-        if (hostName) {
-          changedPackageNames.add(hostName);
-        }
-      });
+    const changedProjects: Set<RushConfigurationProject> = new Set();
+    for (const dir of changedFolders) {
+      const project = this.rushConfiguration.findProjectForPosixRelativePath(dir);
+      if (project) {
+        changedProjects.add(project);
+      }
+    }
+
+    const changedPackageNames: Set<string> = new Set<string>();
+    for (const project of changedProjects) {
+      if (!project.shouldPublish) {
+        continue;
+      }
+
+      if (project.versionPolicy?.exemptFromRushChange) {
+        continue;
+      }
+
+      const hostName: string | undefined = projectHostMap.get(project.packageName);
+      if (hostName) {
+        changedPackageNames.add(hostName);
+      }
+    }
 
     return [...changedPackageNames];
   }
@@ -354,16 +359,6 @@ export class ChangeAction extends BaseRushAction {
     return this._git.getChangedFiles(this._targetBranch, true, `common/changes/`).map((relativePath) => {
       return path.join(this.rushConfiguration.rushJsonFolder, relativePath);
     });
-  }
-
-  private _hasProjectChanged(changedFolders: string[], projectFolder: string): boolean {
-    for (const folder of changedFolders) {
-      if (Path.isUnderOrEqual(folder, projectFolder)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   /**
