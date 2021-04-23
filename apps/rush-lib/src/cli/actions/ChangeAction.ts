@@ -11,7 +11,7 @@ import {
   CommandLineStringParameter,
   CommandLineChoiceParameter
 } from '@rushstack/ts-command-line';
-import { FileSystem, Path, AlreadyReportedError, Import } from '@rushstack/node-core-library';
+import { FileSystem, AlreadyReportedError, Import } from '@rushstack/node-core-library';
 
 import { RushConfigurationProject } from '../../api/RushConfigurationProject';
 import { IChangeFile, IChangeInfo, ChangeType } from '../../api/ChangeManagement';
@@ -325,7 +325,9 @@ export class ChangeAction extends BaseRushAction {
 
     const changedProjects: Set<RushConfigurationProject> = new Set();
     for (const dir of changedFolders) {
-      const project = this.rushConfiguration.findProjectForPosixRelativePath(dir);
+      const project:
+        | RushConfigurationProject
+        | undefined = this.rushConfiguration.findProjectForPosixRelativePath(dir);
       if (project) {
         changedProjects.add(project);
       }
