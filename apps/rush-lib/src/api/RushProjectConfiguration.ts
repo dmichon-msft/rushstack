@@ -177,11 +177,16 @@ export class RushProjectConfiguration {
   public static async tryLoadForProjectAsync(
     project: RushConfigurationProject,
     repoCommandLineConfiguration: CommandLineConfiguration | undefined,
-    terminal: Terminal
+    terminal: Terminal,
+    hasRig?: boolean,
+    hasConfig?: boolean
   ): Promise<RushProjectConfiguration | undefined> {
-    const rigConfig: RigConfig = await RigConfig.loadForProjectFolderAsync({
-      projectFolderPath: project.projectFolder
-    });
+    const rigConfig: RigConfig | undefined =
+      hasConfig && !hasRig
+        ? await RigConfig.loadForProjectFolderAsync({
+            projectFolderPath: project.projectFolder
+          })
+        : undefined;
 
     const rushProjectJson: IRushProjectJson | undefined =
       await this._projectBuildCacheConfigurationFile.tryLoadConfigurationFileForProjectAsync(

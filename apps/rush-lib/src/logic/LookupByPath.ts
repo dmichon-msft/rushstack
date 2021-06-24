@@ -12,7 +12,17 @@ interface IPathTreeNode<TItem> {
   /**
    * Child nodes by subfolder
    */
-  children: Map<string, IPathTreeNode<TItem>> | undefined;
+  children: Map<number, IPathTreeNode<TItem>> | undefined;
+}
+
+interface IPrefixEntry {
+  prefix: number;
+  index: number;
+}
+
+export interface IPrefixMatch<TItem> {
+  value: TItem;
+  index: number;
 }
 
 /**
@@ -42,6 +52,44 @@ export class LookupByPath<TItem> {
   private readonly _root: IPathTreeNode<TItem>;
 
   /**
+   * Iteratively evaluates prefixes of a path
+   */
+  private static *_iteratePrefixes(input: string, delimiter: string = '/'): Iterable<IPrefixEntry> {
+    if (!input) {
+      return;
+    }
+
+    let hash: number = 5381;
+    let nextIndex: number = input.indexOf(delimiter);
+    let previousIndex: number = 0;
+    while (nextIndex >= 0) {
+      for (let i: number = previousIndex; i < nextIndex; i++) {
+        // tslint:disable-next-line:no-bitwise
+        hash = (hash << 5) + hash + input.charCodeAt(i);
+      }
+
+      yield {
+        prefix: hash,
+        index: nextIndex
+      };
+
+      previousIndex = nextIndex + 1;
+      nextIndex = input.indexOf(delimiter, previousIndex);
+    }
+
+    if (previousIndex + 1 < input.length) {
+      for (let i: number = previousIndex; i < input.length; i++) {
+        // tslint:disable-next-line:no-bitwise
+        hash = (hash << 5) + hash + input.charCodeAt(i);
+      }
+      yield {
+        prefix: hash,
+        index: input.length
+      };
+    }
+  }
+
+  /**
    * Constructs a new `LookupByPath`
    *
    * @param entries - Initial path-value pairs to populate the tree.
@@ -62,70 +110,13 @@ export class LookupByPath<TItem> {
   }
 
   /**
-   * Iterates over the segments of a serialized path.
-   *
-   * @example
-   *
-   * `LookupByPath.iteratePathSegments('foo/bar/baz')` yields 'foo', 'bar', 'baz'
-   *
-   * `LookupByPath.iteratePathSegments('foo\\bar\\baz', '\\')` yields 'foo', 'bar', 'baz'
-   */
-  public static *iteratePathSegments(serializedPath: string, delimiter: string = '/'): Iterable<string> {
-    if (!serializedPath) {
-      return;
-    }
-
-    let nextIndex: number = serializedPath.indexOf(delimiter);
-    let previousIndex: number = 0;
-    while (nextIndex >= 0) {
-      yield serializedPath.slice(previousIndex, nextIndex);
-
-      previousIndex = nextIndex + 1;
-      nextIndex = serializedPath.indexOf(delimiter, previousIndex);
-    }
-
-    if (previousIndex + 1 < serializedPath.length) {
-      yield serializedPath.slice(previousIndex);
-    }
-  }
-
-  /**
    * Associates the value with the specified serialized path.
    * If a value is already associated, will overwrite.
    *
    * @returns this, for chained calls
    */
   public setItem(serializedPath: string, value: TItem): this {
-    return this.setItemFromSegments(LookupByPath.iteratePathSegments(serializedPath, this.delimiter), value);
-  }
-
-  /**
-   * Associates the value with the specified path.
-   * If a value is already associated, will overwrite.
-   *
-   * @returns this, for chained calls
-   */
-  public setItemFromSegments(pathSegments: Iterable<string>, value: TItem): this {
-    let node: IPathTreeNode<TItem> = this._root;
-    for (const segment of pathSegments) {
-      if (!node.children) {
-        node.children = new Map();
-      }
-      let child: IPathTreeNode<TItem> | undefined = node.children.get(segment);
-      if (!child) {
-        node.children.set(
-          segment,
-          (child = {
-            value: undefined,
-            children: undefined
-          })
-        );
-      }
-      node = child;
-    }
-    node.value = value;
-
-    return this;
+    return this._setItemWithPrefixes(LookupByPath._iteratePrefixes(serializedPath, this.delimiter), value);
   }
 
   /**
@@ -141,8 +132,37 @@ export class LookupByPath<TItem> {
    * tree.findChildPath('foo/bar/baz'); // returns 2
    * ```
    */
-  public findChildPath(childPath: string): TItem | undefined {
-    return this.findChildPathFromSegments(LookupByPath.iteratePathSegments(childPath, this.delimiter));
+  public findChildPath(childPath: string): IPrefixMatch<TItem> | undefined {
+    return this._findChildPathFromPrefixes(LookupByPath._iteratePrefixes(childPath, this.delimiter));
+  }
+
+  /**
+   * Associates the value with the specified path.
+   * If a value is already associated, will overwrite.
+   *
+   * @returns this, for chained calls
+   */
+  private _setItemWithPrefixes(pathSegments: Iterable<IPrefixEntry>, value: TItem): this {
+    let node: IPathTreeNode<TItem> = this._root;
+    for (const { prefix: hash } of pathSegments) {
+      if (!node.children) {
+        node.children = new Map();
+      }
+      let child: IPathTreeNode<TItem> | undefined = node.children.get(hash);
+      if (!child) {
+        node.children.set(
+          hash,
+          (child = {
+            value: undefined,
+            children: undefined
+          })
+        );
+      }
+      node = child;
+    }
+    node.value = value;
+
+    return this;
   }
 
   /**
@@ -150,26 +170,31 @@ export class LookupByPath<TItem> {
    * has an associated item.
    *
    * @returns the found item, or `undefined` if no item was found
-   *
-   * @example
-   * ```ts
-   * const tree = new LookupByPath([['foo', 1], ['foo/bar', 2]]);
-   * tree.findChildPathFromSegments(['foo', 'baz']); // returns 1
-   * tree.findChildPathFromSegments(['foo','bar', 'baz']); // returns 2
-   * ```
    */
-  public findChildPathFromSegments(childPathSegments: Iterable<string>): TItem | undefined {
+  private _findChildPathFromPrefixes(
+    childPathSegments: Iterable<IPrefixEntry>
+  ): IPrefixMatch<TItem> | undefined {
     let node: IPathTreeNode<TItem> = this._root;
-    let best: TItem | undefined = node.value;
+    let best: IPrefixMatch<TItem> | undefined = node.value
+      ? {
+          value: node.value,
+          index: 0
+        }
+      : undefined;
     // Trivial cases
     if (node.children) {
-      for (const segment of childPathSegments) {
-        const child: IPathTreeNode<TItem> | undefined = node.children.get(segment);
+      for (const { prefix: hash, index } of childPathSegments) {
+        const child: IPathTreeNode<TItem> | undefined = node.children.get(hash);
         if (!child) {
           break;
         }
         node = child;
-        best = node.value ?? best;
+        if (node.value !== undefined) {
+          best = {
+            value: node.value,
+            index
+          };
+        }
         if (!node.children) {
           break;
         }

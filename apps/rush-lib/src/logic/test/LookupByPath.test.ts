@@ -3,31 +3,12 @@
 
 import { LookupByPath } from '../LookupByPath';
 
-describe('iteratePathSegments', () => {
-  it('returns empty for an empty string', () => {
-    const result = [...LookupByPath.iteratePathSegments('')];
-    expect(result.length).toEqual(0);
-  });
-  it('returns the only segment of a trival string', () => {
-    const result = [...LookupByPath.iteratePathSegments('foo')];
-    expect(result).toEqual(['foo']);
-  });
-  it('treats backslashes as ordinary characters, per POSIX', () => {
-    const result = [...LookupByPath.iteratePathSegments('foo\\bar\\baz')];
-    expect(result).toEqual(['foo\\bar\\baz']);
-  });
-  it('iterates segments', () => {
-    const result = [...LookupByPath.iteratePathSegments('foo/bar/baz')];
-    expect(result).toEqual(['foo', 'bar', 'baz']);
-  });
-});
-
 describe('findChildPath', () => {
   it('returns empty for an empty tree', () => {
     expect(new LookupByPath().findChildPath('foo')).toEqual(undefined);
   });
   it('returns the matching node for a trivial tree', () => {
-    expect(new LookupByPath([['foo', 1]]).findChildPath('foo')).toEqual(1);
+    expect(new LookupByPath([['foo', 1]]).findChildPath('foo')?.value).toEqual(1);
   });
   it('returns the matching node for a single-layer tree', () => {
     const tree: LookupByPath<number> = new LookupByPath([
@@ -36,10 +17,10 @@ describe('findChildPath', () => {
       ['baz', 3]
     ]);
 
-    expect(tree.findChildPath('foo')).toEqual(1);
-    expect(tree.findChildPath('bar')).toEqual(2);
-    expect(tree.findChildPath('baz')).toEqual(3);
-    expect(tree.findChildPath('buzz')).toEqual(undefined);
+    expect(tree.findChildPath('foo')?.value).toEqual(1);
+    expect(tree.findChildPath('bar')?.value).toEqual(2);
+    expect(tree.findChildPath('baz')?.value).toEqual(3);
+    expect(tree.findChildPath('buzz')?.value).toEqual(undefined);
   });
   it('returns the matching parent for multi-layer queries', () => {
     const tree: LookupByPath<number> = new LookupByPath([
@@ -48,10 +29,10 @@ describe('findChildPath', () => {
       ['baz', 3]
     ]);
 
-    expect(tree.findChildPath('foo/bar')).toEqual(1);
-    expect(tree.findChildPath('bar/baz')).toEqual(2);
-    expect(tree.findChildPath('baz/foo')).toEqual(3);
-    expect(tree.findChildPath('foo/foo')).toEqual(1);
+    expect(tree.findChildPath('foo/bar')?.value).toEqual(1);
+    expect(tree.findChildPath('bar/baz')?.value).toEqual(2);
+    expect(tree.findChildPath('baz/foo')?.value).toEqual(3);
+    expect(tree.findChildPath('foo/foo')?.value).toEqual(1);
   });
   it('returns the matching parent for multi-layer queries in multi-layer trees', () => {
     const tree: LookupByPath<number> = new LookupByPath([
@@ -64,24 +45,24 @@ describe('findChildPath', () => {
       ['baz/baz/baz/baz', 7]
     ]);
 
-    expect(tree.findChildPath('foo/foo')).toEqual(1);
-    expect(tree.findChildPath('foo/bar\\baz')).toEqual(1);
+    expect(tree.findChildPath('foo/foo')?.value).toEqual(1);
+    expect(tree.findChildPath('foo/bar\\baz')?.value).toEqual(1);
 
-    expect(tree.findChildPath('bar/baz')).toEqual(2);
+    expect(tree.findChildPath('bar/baz')?.value).toEqual(2);
 
-    expect(tree.findChildPath('baz/bar')).toEqual(3);
-    expect(tree.findChildPath('baz/baz')).toEqual(3);
-    expect(tree.findChildPath('baz/baz/baz')).toEqual(3);
+    expect(tree.findChildPath('baz/bar')?.value).toEqual(3);
+    expect(tree.findChildPath('baz/baz')?.value).toEqual(3);
+    expect(tree.findChildPath('baz/baz/baz')?.value).toEqual(3);
 
-    expect(tree.findChildPath('foo/bar')).toEqual(4);
-    expect(tree.findChildPath('foo/bar/foo')).toEqual(4);
+    expect(tree.findChildPath('foo/bar')?.value).toEqual(4);
+    expect(tree.findChildPath('foo/bar/foo')?.value).toEqual(4);
 
-    expect(tree.findChildPath('foo/bar/baz')).toEqual(5);
-    expect(tree.findChildPath('foo/bar/baz/baz/baz/baz/baz')).toEqual(5);
+    expect(tree.findChildPath('foo/bar/baz')?.value).toEqual(5);
+    expect(tree.findChildPath('foo/bar/baz/baz/baz/baz/baz')?.value).toEqual(5);
 
-    expect(tree.findChildPath('baz/foo/')).toEqual(6);
+    expect(tree.findChildPath('baz/foo/')?.value).toEqual(6);
 
-    expect(tree.findChildPath('baz/baz/baz/baz')).toEqual(7);
+    expect(tree.findChildPath('baz/baz/baz/baz')?.value).toEqual(7);
 
     expect(tree.findChildPath('')).toEqual(undefined);
     expect(tree.findChildPath('foofoo')).toEqual(undefined);
@@ -96,8 +77,8 @@ describe('findChildPath', () => {
       ','
     );
 
-    expect(tree.findChildPath('foo/bar,baz')).toEqual(2);
-    expect(tree.findChildPath('foo,bar/baz')).toEqual(undefined);
-    expect(tree.findChildPathFromSegments(['foo', 'bar', 'baz'])).toEqual(1);
+    expect(tree.findChildPath('foo/bar,baz')?.value).toEqual(2);
+    expect(tree.findChildPath('foo,bar/baz')?.value).toEqual(undefined);
+    expect(tree.findChildPath('foo,bar,baz')?.value).toEqual(1);
   });
 });

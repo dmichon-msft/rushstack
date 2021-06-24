@@ -32,7 +32,7 @@ import { PnpmPackageManager } from './packageManager/PnpmPackageManager';
 import { ExperimentsConfiguration } from './ExperimentsConfiguration';
 import { PackageNameParsers } from './PackageNameParsers';
 import { RepoStateFile } from '../logic/RepoStateFile';
-import { LookupByPath } from '../logic/LookupByPath';
+import { IPrefixMatch, LookupByPath } from '../logic/LookupByPath';
 import { PackageJsonDependency } from './PackageJsonEditor';
 
 const MINIMUM_SUPPORTED_RUSH_JSON_VERSION: string = '0.0.0';
@@ -1666,7 +1666,9 @@ export class RushConfiguration {
    * @returns The found project, or undefined if no match was found
    */
   public findProjectForPosixRelativePath(posixRelativePath: string): RushConfigurationProject | undefined {
-    return this._projectByRelativePath.findChildPath(posixRelativePath);
+    const result: IPrefixMatch<RushConfigurationProject> | undefined =
+      this._projectByRelativePath.findChildPath(posixRelativePath);
+    return result?.value;
   }
 
   /**

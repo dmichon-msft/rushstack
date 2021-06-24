@@ -15,6 +15,13 @@ import { Git } from './Git';
 import { BaseProjectShrinkwrapFile } from './base/BaseProjectShrinkwrapFile';
 import { RushConfigurationProject } from '../api/RushConfigurationProject';
 import { RushConstants } from './RushConstants';
+import { IPrefixMatch, LookupByPath } from './LookupByPath';
+
+interface ILookupNode {
+  project: RushConfigurationProject;
+  ignorer: Ignore | undefined;
+  hashDeps: Map<string, string>;
+}
 
 export class PackageChangeAnalyzer {
   /**
@@ -82,36 +89,47 @@ export class PackageChangeAnalyzer {
       return undefined;
     }
 
+    const lookup: LookupByPath<ILookupNode> = new LookupByPath<ILookupNode>();
     const projectHashDeps: Map<string, Map<string, string>> = new Map<string, Map<string, string>>();
-    const ignoreMatcherForProject: Map<string, Ignore> = new Map<string, Ignore>();
 
-    // Initialize maps for each project asynchronously, up to 10 projects concurrently.
+    // Initialize maps for each project asynchronously, up to 50 projects concurrently.
+    // This operation is vastly more expensive than the change analysis
     await Async.forEachAsync(
       this._rushConfiguration.projects,
       async (project: RushConfigurationProject): Promise<void> => {
-        projectHashDeps.set(project.packageName, new Map<string, string>());
-        ignoreMatcherForProject.set(
-          project.packageName,
-          await this._getIgnoreMatcherForProject(project, terminal)
+        const hashDeps: Map<string, string> = new Map();
+        projectHashDeps.set(project.packageName, hashDeps);
+        const relativePath: string = Path.convertToSlashes(project.projectRelativeFolder);
+        const hasConfig = repoDeps.has(`${relativePath}/config/rush-project.json`);
+        const hasRig = repoDeps.has(`${relativePath}/config/rig.json`);
+
+        const ignorer: Ignore | undefined = await this._getIgnoreMatcherForProject(
+          project,
+          terminal,
+          hasRig,
+          hasConfig
         );
+        lookup.setItem(relativePath, {
+          project,
+          hashDeps,
+          ignorer
+        });
       },
-      { concurrency: 10 }
+      { concurrency: 50 }
     );
 
     // Sort each project folder into its own package deps hash
     for (const [filePath, fileHash] of repoDeps) {
       // findProjectForPosixRelativePath uses LookupByPath, for which lookups are O(K)
       // K being the maximum folder depth of any project in rush.json (usually on the order of 3)
-      const owningProject: RushConfigurationProject | undefined =
-        this._rushConfiguration.findProjectForPosixRelativePath(filePath);
-      if (owningProject) {
+      const lookupResult: IPrefixMatch<ILookupNode> | undefined = lookup.findChildPath(filePath);
+      if (lookupResult) {
         // At this point, `filePath` is guaranteed to start with `projectRelativeFolder`, so
         // we can safely slice off the first N characters to get the file path relative to the
         // root of the `owningProject`.
-        const relativePath: string = filePath.slice(owningProject.projectRelativeFolder.length + 1);
-        const ignoreMatcher: Ignore | undefined = ignoreMatcherForProject.get(owningProject.packageName);
-        if (!ignoreMatcher || !ignoreMatcher.ignores(relativePath)) {
-          projectHashDeps.get(owningProject.packageName)!.set(filePath, fileHash);
+        const ignoreMatcher: Ignore | undefined = lookupResult.value.ignorer;
+        if (!ignoreMatcher || !ignoreMatcher.ignores(filePath.slice(lookupResult.index + 1))) {
+          lookupResult.value.hashDeps.set(filePath, fileHash);
         }
       }
     }
@@ -179,17 +197,19 @@ export class PackageChangeAnalyzer {
 
   private async _getIgnoreMatcherForProject(
     project: RushConfigurationProject,
-    terminal: Terminal
-  ): Promise<Ignore> {
+    terminal: Terminal,
+    hasRig: boolean,
+    hasConfig: boolean
+  ): Promise<Ignore | undefined> {
     const projectConfiguration: RushProjectConfiguration | undefined =
-      await RushProjectConfiguration.tryLoadForProjectAsync(project, undefined, terminal);
-    const ignoreMatcher: Ignore = ignore();
+      await RushProjectConfiguration.tryLoadForProjectAsync(project, undefined, terminal, hasRig, hasConfig);
 
     if (projectConfiguration && projectConfiguration.incrementalBuildIgnoredGlobs) {
+      // Only create the ignorer if we have globs to match, so that we can skip evaluation
+      const ignoreMatcher: Ignore = ignore();
       ignoreMatcher.add(projectConfiguration.incrementalBuildIgnoredGlobs);
+      return ignoreMatcher;
     }
-
-    return ignoreMatcher;
   }
 
   private _getRepoDeps(): Map<string, string> | undefined {
