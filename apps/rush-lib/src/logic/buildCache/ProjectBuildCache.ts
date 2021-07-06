@@ -127,11 +127,18 @@ export class ProjectBuildCache {
       return false;
     }
 
-    let localCacheEntryPath: string | undefined =
-      await this._localBuildCacheProvider.tryGetCacheEntryPathByIdAsync(terminal, cacheId);
+    const localCacheEntryPath: string = this._localBuildCacheProvider.getCacheEntryPath(cacheId);
     let cacheEntryBuffer: Buffer | undefined;
+    try {
+      cacheEntryBuffer = await FileSystem.readFileToBufferAsync(localCacheEntryPath);
+    } catch (e) {
+      if (!FileSystem.isNotExistError(e)) {
+        throw e;
+      }
+    }
+
     let updateLocalCacheSuccess: boolean | undefined;
-    if (!localCacheEntryPath && this._cloudBuildCacheProvider) {
+    if (!cacheEntryBuffer && this._cloudBuildCacheProvider) {
       terminal.writeVerboseLine(
         'This project was not found in the local build cache. Querying the cloud build cache.'
       );
@@ -140,13 +147,12 @@ export class ProjectBuildCache {
         terminal,
         cacheId
       );
+
       if (cacheEntryBuffer) {
         try {
-          localCacheEntryPath = await this._localBuildCacheProvider.trySetCacheEntryBufferAsync(
-            terminal,
-            cacheId,
-            cacheEntryBuffer
-          );
+          await FileSystem.writeFileAsync(localCacheEntryPath, cacheEntryBuffer, {
+            ensureFolderExists: true
+          });
           updateLocalCacheSuccess = true;
         } catch (e) {
           updateLocalCacheSuccess = false;
@@ -154,7 +160,7 @@ export class ProjectBuildCache {
       }
     }
 
-    if (!localCacheEntryPath && !cacheEntryBuffer) {
+    if (!cacheEntryBuffer) {
       terminal.writeVerboseLine('This project was not found in the build cache.');
       return false;
     }
@@ -173,7 +179,7 @@ export class ProjectBuildCache {
 
     const tarUtility: TarExecutable | undefined = ProjectBuildCache._tryGetTarUtility(terminal);
     let restoreSuccess: boolean = false;
-    if (tarUtility && localCacheEntryPath) {
+    if (tarUtility && cacheEntryBuffer) {
       const logFilePath: string = this._getTarLogFilePath();
       const tarExitCode: number = await tarUtility.tryUntarAsync({
         archivePath: localCacheEntryPath,
@@ -192,10 +198,6 @@ export class ProjectBuildCache {
     }
 
     if (!restoreSuccess) {
-      if (!cacheEntryBuffer && localCacheEntryPath) {
-        cacheEntryBuffer = await FileSystem.readFileToBufferAsync(localCacheEntryPath);
-      }
-
       if (!cacheEntryBuffer) {
         throw new Error('Expected the cache entry buffer to be set.');
       }
