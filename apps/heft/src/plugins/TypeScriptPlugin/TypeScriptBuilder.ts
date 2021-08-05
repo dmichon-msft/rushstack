@@ -54,6 +54,11 @@ export interface ITypeScriptBuilderConfiguration extends ISharedTypeScriptConfig
   tsconfigPath: string;
 
   /**
+   * The name to use for the scoped logger.
+   */
+  loggerName?: string | undefined;
+
+  /**
    * The path of project's build cache folder
    */
   buildCacheFolder: string;
@@ -151,7 +156,10 @@ export class TypeScriptBuilder extends SubprocessRunnerBase<ITypeScriptBuilderCo
   }
 
   public async invokeAsync(): Promise<void> {
-    this._typescriptLogger = await this.requestScopedLoggerAsync('typescript');
+    const { loggerName } = this._configuration;
+    this._typescriptLogger = await this.requestScopedLoggerAsync(
+      `typescript${loggerName ? ` (${loggerName})` : ''}`
+    );
     this._typescriptTerminal = this._typescriptLogger.terminal;
 
     // Determine the compiler version
@@ -265,7 +273,9 @@ export class TypeScriptBuilder extends SubprocessRunnerBase<ITypeScriptBuilderCo
         throw new Error('Unable to resolve "tslint" package');
       }
 
-      const tslintLogger: IScopedLogger = await this.requestScopedLoggerAsync('tslint');
+      const tslintLogger: IScopedLogger = await this.requestScopedLoggerAsync(
+        `tslint${loggerName ? ` (${loggerName})` : ''}`
+      );
       tslint = new Tslint({
         ts: ts,
         tslintPackagePath: this._configuration.tslintToolPath,
@@ -284,7 +294,9 @@ export class TypeScriptBuilder extends SubprocessRunnerBase<ITypeScriptBuilderCo
         throw new Error('Unable to resolve "eslint" package');
       }
 
-      const eslintLogger: IScopedLogger = await this.requestScopedLoggerAsync('eslint');
+      const eslintLogger: IScopedLogger = await this.requestScopedLoggerAsync(
+        `eslint${loggerName ? ` (${loggerName})` : ''}`
+      );
       eslint = new Eslint({
         ts: ts,
         eslintPackagePath: this._configuration.eslintToolPath,

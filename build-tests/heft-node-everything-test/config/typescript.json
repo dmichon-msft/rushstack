@@ -25,7 +25,9 @@
       "moduleKind": "umd",
       "outFolderName": "lib-umd"
     }
-  ]
+  ],
+
+  "tsconfigPaths": ["tsconfig-test.json", "tsconfig-main.json"]
 
   /**
    * If set to "true", the TSlint task will not be invoked.

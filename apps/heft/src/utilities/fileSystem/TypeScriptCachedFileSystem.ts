@@ -95,7 +95,9 @@ export class TypeScriptCachedFileSystem {
   };
 
   public readFileToBuffer: (filePath: string) => Buffer = (filePath: string) => {
-    return this._withCaching(filePath, FileSystem.readFileToBuffer, this._readFileCache);
+    // There isn't actually anything to be gained by caching the reads in the general case.
+    // We cache JSON files for package.json, but that's it.
+    return FileSystem.readFileToBuffer(filePath);
   };
 
   public copyFileAsync: (options: IFileSystemCopyFileOptions) => Promise<void> = async (

@@ -2,7 +2,7 @@
 // See LICENSE in the project root for license information.
 
 import * as path from 'path';
-import { Terminal, FileSystem } from '@rushstack/node-core-library';
+import { Terminal, FileSystem, JsonFile } from '@rushstack/node-core-library';
 
 import { TypeScriptBuilder, ITypeScriptBuilderConfiguration } from './TypeScriptBuilder';
 import { HeftSession } from '../../pluginFramework/HeftSession';
@@ -39,6 +39,23 @@ interface IEmitModuleKind {
   jsExtensionOverride?: string;
 }
 
+interface IRawProjectReference {
+  path: string;
+}
+
+interface IRawTsConfigJson {
+  references?: readonly IRawProjectReference[];
+  compilerOptions?: {
+    composite?: boolean;
+  };
+}
+
+interface IBuildTaskInfo {
+  loggerName: string;
+  rawConfig: IRawTsConfigJson;
+  deps: Set<string>;
+}
+
 export interface ISharedTypeScriptConfiguration {
   /**
    * Can be set to 'copy' or 'hardlink'. If set to 'copy', copy files from cache. If set to 'hardlink', files will be
@@ -70,6 +87,13 @@ export interface ISharedTypeScriptConfiguration {
    * The default value is "lib".
    */
   emitFolderNameForTests?: string;
+
+  /**
+   * Specifies the path to one or more tsconfig.json, relative to the project root.
+   *
+   * The default value is ["tsconfig.json"]
+   */
+  tsconfigPaths?: string[] | undefined;
 
   /**
    * Configures additional file types that should be copied into the TypeScript compiler's emit folders, for example
@@ -196,17 +220,77 @@ export class TypeScriptPlugin implements IHeftPlugin {
     }
   }
 
+  private async _getBuildOrderAsync(
+    buildFolder: string,
+    typescriptConfigurationJson: ITypeScriptConfigurationJson | undefined
+  ): Promise<Map<string, IBuildTaskInfo>> {
+    const { tsconfigPaths = ['tsconfig.json'] } = typescriptConfigurationJson || {};
+
+    const resolvedPaths: string[] = tsconfigPaths.map((configPath: string) =>
+      path.resolve(buildFolder, configPath)
+    );
+
+    const dependencyMap: Map<string, IBuildTaskInfo> = new Map();
+    try {
+      await Promise.all(
+        resolvedPaths.map(async (configPath: string, index: number) => {
+          const tsConfig: IRawTsConfigJson = await JsonFile.loadAsync(configPath);
+          dependencyMap.set(configPath, {
+            loggerName: tsconfigPaths[index],
+            deps: new Set(),
+            rawConfig: tsConfig
+          });
+        })
+      );
+    } catch (err) {
+      if (!FileSystem.isNotExistError(err)) {
+        throw err;
+      }
+
+      if (!typescriptConfigurationJson) {
+        // Not a TypeScript project. Empty dependency graph.
+        return new Map();
+      }
+
+      // Was a typescript project, but a reference config does not exist.
+      throw err;
+    }
+
+    for (const [configPath, { deps, rawConfig }] of dependencyMap) {
+      if (!rawConfig.references) {
+        continue;
+      }
+
+      const configDir: string = path.dirname(configPath);
+      for (const ref of rawConfig.references) {
+        const resolved: string = path.resolve(configDir, ref.path);
+        if (dependencyMap.has(resolved)) {
+          deps.add(resolved);
+        }
+      }
+    }
+
+    return dependencyMap;
+  }
+
   private async _runTypeScriptAsync(logger: ScopedLogger, options: IRunTypeScriptOptions): Promise<void> {
     const { heftSession, heftConfiguration, buildProperties, watchMode } = options;
 
     const typescriptConfigurationJson: ITypeScriptConfigurationJson | undefined =
       await this._ensureConfigFileLoadedAsync(logger.terminal, heftConfiguration);
 
-    const tsconfigFilePath: string = `${heftConfiguration.buildFolder}/tsconfig.json`;
-    buildProperties.isTypeScriptProject = await FileSystem.existsAsync(tsconfigFilePath);
-    if (!buildProperties.isTypeScriptProject) {
-      // If there are no TSConfig, we have nothing to do
+    const buildOrder: Map<string, IBuildTaskInfo> = await this._getBuildOrderAsync(
+      heftConfiguration.buildFolder,
+      typescriptConfigurationJson
+    );
+    if (!buildOrder.size) {
+      // No tsconfig. Nothing to do.
+      buildProperties.isTypeScriptProject = false;
       return;
+    }
+
+    if (buildOrder.size > 1 && watchMode) {
+      throw new Error(`Heft does not yet support --watch for multiple tsconfigs in a single project.`);
     }
 
     const typeScriptConfiguration: ITypeScriptConfiguration = {
@@ -251,13 +335,15 @@ export class TypeScriptPlugin implements IHeftPlugin {
       ? '.cjs'
       : '.js';
 
-    const typeScriptBuilderConfiguration: ITypeScriptBuilderConfiguration = {
+    const typeScriptBuilderCommonConfiguration: Omit<
+      ITypeScriptBuilderConfiguration,
+      'tsconfigPath' | 'loggerName'
+    > = {
       buildFolder: heftConfiguration.buildFolder,
       typeScriptToolPath: toolPackageResolution.typeScriptPackagePath!,
       tslintToolPath: toolPackageResolution.tslintPackagePath,
       eslintToolPath: toolPackageResolution.eslintPackagePath,
 
-      tsconfigPath: tsconfigFilePath,
       lintingEnabled: !!typeScriptConfiguration.isLintingEnabled,
       buildCacheFolder: heftConfiguration.buildCacheFolder,
       additionalModuleKindsToEmit: typeScriptConfiguration.additionalModuleKindsToEmit,
@@ -267,17 +353,46 @@ export class TypeScriptPlugin implements IHeftPlugin {
       watchMode: watchMode,
       maxWriteParallelism: typeScriptConfiguration.maxWriteParallelism
     };
-    const typeScriptBuilder: TypeScriptBuilder = new TypeScriptBuilder(
-      heftConfiguration.terminalProvider,
-      typeScriptBuilderConfiguration,
-      heftSession,
-      options.emitCallback
-    );
 
-    if (heftSession.debugMode) {
-      await typeScriptBuilder.invokeAsync();
-    } else {
-      await typeScriptBuilder.invokeAsSubprocessAsync();
+    const getNextTsConfig: () => [string, IBuildTaskInfo] = () => {
+      for (const item of buildOrder) {
+        if (item[1].deps.size === 0) {
+          return item;
+        }
+      }
+      throw new Error(
+        `Circular dependency in remaining tsconfigs: '${Array.from(buildOrder.keys()).join(`', '`)}'.`
+      );
+    };
+
+    while (buildOrder.size > 0) {
+      const [tsconfigPath, buildTask] = getNextTsConfig();
+
+      logger.terminal.writeLine(`Processing config at ${tsconfigPath}.`);
+
+      const builderConfiguration: ITypeScriptBuilderConfiguration = {
+        ...typeScriptBuilderCommonConfiguration,
+        tsconfigPath,
+        loggerName: buildTask.loggerName
+      };
+
+      const builder: TypeScriptBuilder = new TypeScriptBuilder(
+        heftConfiguration.terminalProvider,
+        builderConfiguration,
+        heftSession,
+        options.emitCallback
+      );
+
+      if (heftSession.debugMode) {
+        await builder.invokeAsync();
+      } else {
+        await builder.invokeAsSubprocessAsync();
+      }
+
+      buildOrder.delete(tsconfigPath);
+      for (const { deps } of buildOrder.values()) {
+        deps.delete(tsconfigPath);
+      }
     }
   }
 }

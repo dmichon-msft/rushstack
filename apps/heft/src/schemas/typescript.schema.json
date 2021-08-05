@@ -68,6 +68,14 @@
       "type": "number"
     },
 
+    "tsconfigPaths": {
+      "description": "Configures paths to tsconfig files that should be compiled for this project. These configs may be composite and refer to each other using project references. Paths are resolved relative to the build folder. The default value is [\"tsconfig.json\"].",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+
     "staticAssetsToCopy": {
       "description": "Configures additional file types that should be copied into the TypeScript compiler's emit folders, for example so that these files can be resolved by import statements.",
       "type": "object",

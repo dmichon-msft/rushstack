@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true
+  },
+  "references": [
+    {
+      "path": "./tsconfig-main.json"
+    }
+  ],
+  "files": ["src/test/ExampleTest.test.ts"],
+  "include": []
+}
