@@ -108,6 +108,7 @@ export class EmitFilesPatch {
         }
 
         let defaultModuleKindResult: TTypescript.EmitResult;
+        const diagnostics: TTypescript.Diagnostic[] = [];
         let emitSkipped: boolean = false;
         for (const moduleKindToEmit of moduleKindsToEmit) {
           const compilerOptions: TTypescript.CompilerOptions = moduleKindToEmit.isPrimary
@@ -149,6 +150,10 @@ export class EmitFilesPatch {
           );
 
           emitSkipped = emitSkipped || flavorResult.emitSkipped;
+          for (const diagnostic of flavorResult.diagnostics) {
+            diagnostics.push(diagnostic);
+          }
+
           if (moduleKindToEmit.moduleKind === defaultModuleKind) {
             defaultModuleKindResult = flavorResult;
           }
@@ -157,8 +162,13 @@ export class EmitFilesPatch {
           EmitFilesPatch._redirectedOutDir = undefined;
           // Should results be aggregated, in case for whatever reason the diagnostics are not the same?
         }
+
+        const emitDiagnostics: readonly TTypescript.Diagnostic[] =
+          ts.sortAndDeduplicateDiagnostics(diagnostics);
+
         return {
           ...defaultModuleKindResult!,
+          diagnostics: emitDiagnostics,
           emitSkipped
         };
       }
