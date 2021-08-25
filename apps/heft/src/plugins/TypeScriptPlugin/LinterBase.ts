@@ -103,12 +103,10 @@ export abstract class LinterBase<TLintResult> {
       fileHash.update(relative);
     }
     const hashSuffix: string = fileHash.digest('base64').replace(/\+/g, '-').replace(/\//g, '_').slice(0, 8);
+    const key: string = `${this._linterName}-${hashSuffix}`;
 
     const tslintConfigVersion: string = this.cacheVersion;
-    const cacheFilePath: string = path.resolve(
-      this._buildMetadataFolderPath,
-      `_${this._linterName}-${hashSuffix}.json`
-    );
+    const cacheFilePath: string = path.resolve(this._buildMetadataFolderPath, `_${key}.json`);
 
     let tslintCacheData: ITsLintCacheData | undefined;
     try {
@@ -151,7 +149,7 @@ export abstract class LinterBase<TLintResult> {
         cachedVersion !== version ||
         options.changedFiles.has(sourceFile)
       ) {
-        this._measurePerformance(this._linterName, () => {
+        this._measurePerformance(key, () => {
           const failures: TLintResult[] = this.lintFile(sourceFile);
           if (failures.length === 0) {
             newNoFailureFileVersions.set(relative, version);
@@ -173,7 +171,7 @@ export abstract class LinterBase<TLintResult> {
     };
     await JsonFile.saveAsync(updatedTslintCacheData, cacheFilePath, { ensureFolderExists: true });
 
-    const lintTiming: ITiming = this.getTiming(this._linterName);
+    const lintTiming: ITiming = this.getTiming(key);
     this._terminal.writeVerboseLine(`Lint: ${lintTiming.duration}ms (${lintTiming.hitCount} files)`);
   }
 
