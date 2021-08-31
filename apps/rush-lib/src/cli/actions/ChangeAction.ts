@@ -328,8 +328,8 @@ export class ChangeAction extends BaseRushAction {
 
   private async _getChangedProjectNamesAsync(): Promise<string[]> {
     const projectChangeAnalyzer: ProjectChangeAnalyzer = new ProjectChangeAnalyzer(this.rushConfiguration);
-    const changedProjects: AsyncIterable<RushConfigurationProject> =
-      projectChangeAnalyzer.getChangedProjectsAsync({
+    const changedProjects: Set<RushConfigurationProject> =
+      await projectChangeAnalyzer.getChangedProjectsAsync({
         targetBranchName: this._targetBranch,
         terminal: this._terminal,
         shouldFetch: !this._noFetchParameter.value
@@ -337,7 +337,7 @@ export class ChangeAction extends BaseRushAction {
     const projectHostMap: Map<string, string> = this._generateHostMap();
 
     const changedProjectNames: Set<string> = new Set<string>();
-    for await (const changedProject of changedProjects) {
+    for (const changedProject of changedProjects) {
       if (changedProject.shouldPublish && !changedProject.versionPolicy?.exemptFromRushChange) {
         const hostName: string | undefined = projectHostMap.get(changedProject.packageName);
         if (hostName) {

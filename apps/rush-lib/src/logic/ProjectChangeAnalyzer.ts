@@ -146,14 +146,16 @@ export class ProjectChangeAnalyzer {
    * Gets a list of projects that have changed in the current state of the repo
    * when compared to the specified branch.
    */
-  public async *getChangedProjectsAsync(
+  public async getChangedProjectsAsync(
     options: IGetChangedProjectsOptions
-  ): AsyncIterable<RushConfigurationProject> {
+  ): Promise<Set<RushConfigurationProject>> {
     const changedFolders: string[] | undefined = this._git.getChangedFolders(
       options.targetBranchName,
       options.terminal,
       options.shouldFetch
     );
+
+    const changedProjects: Set<RushConfigurationProject> = new Set();
 
     if (changedFolders) {
       const repoRootFolder: string | undefined = this._git.getRepositoryRootPath();
@@ -162,10 +164,12 @@ export class ProjectChangeAnalyzer {
           ? path.relative(repoRootFolder, project.projectFolder)
           : project.projectRelativeFolder;
         if (this._hasProjectChanged(changedFolders, projectFolder)) {
-          yield project;
+          changedProjects.add(project);
         }
       }
     }
+
+    return changedProjects;
   }
 
   private _hasProjectChanged(changedFolders: string[], projectFolder: string): boolean {
