@@ -70,8 +70,8 @@ export class TarExecutable {
    */
   public async tryCreateArchiveFromProjectPathsAsync(options: ICreateArchiveOptions): Promise<number> {
     const { project, archivePath, paths, logFilePath } = options;
-    const pathsListFilePath: string = `${project.projectRushTempFolder}/tarPaths_${Date.now()}`;
-    await FileSystem.writeFileAsync(pathsListFilePath, paths.join('\n'));
+
+    const tarInput: string = paths.join('\n');
 
     // On Windows, tar.exe will report a "Failed to clean up compressor" error if the target folder
     // does not exist (GitHub #2622)
@@ -88,19 +88,15 @@ export class TarExecutable {
         archivePath,
         // [Windows bsdtar 3.3.2] -z, -j, -J, --lzma  Compress archive with gzip/bzip2/xz/lzma
         '-z',
-        // [Windows bsdtar 3.3.2] -C <dir>  Change to <dir> before processing remaining files
-        '-C',
-        projectFolderPath,
         // [GNU tar 1.33] -T, --files-from=FILE      get names to extract or create from FILE
         //
         // Windows bsdtar does not document this parameter, but seems to accept it.
-        '--files-from',
-        pathsListFilePath
+        '--files-from=-'
       ],
       projectFolderPath,
-      logFilePath
+      logFilePath,
+      tarInput
     );
-    await FileSystem.deleteFileAsync(pathsListFilePath);
 
     return tarExitCode;
   }
@@ -108,7 +104,8 @@ export class TarExecutable {
   private async _spawnTarWithLoggingAsync(
     args: string[],
     currentWorkingDirectory: string,
-    logFilePath: string
+    logFilePath: string,
+    input?: string
   ): Promise<number> {
     // Runs "tar" with the specified args and logs its output to the specified location.
     // The log file looks like this:
@@ -153,6 +150,11 @@ export class TarExecutable {
 
     childProcess.stdout.on('data', (chunk) => fileWriter.write(`[stdout] ${chunk}`));
     childProcess.stderr.on('data', (chunk) => fileWriter.write(`[stderr] ${chunk}`));
+
+    if (input !== undefined) {
+      childProcess.stdin.write(input, 'utf-8');
+      childProcess.stdin.end();
+    }
 
     const [tarExitCode] = await events.once(childProcess, 'exit');
 
