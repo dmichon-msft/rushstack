@@ -20,6 +20,7 @@ import { IPackageJson } from '@rushstack/node-core-library';
 
 export const RUSH_JSON_FILENAME: string = 'rush.json';
 const RUSH_TEMP_FOLDER_ENV_VARIABLE_NAME: string = 'RUSH_TEMP_FOLDER';
+const INSTALL_RUN_LOCKFILE_PATH_VARIABLE: string = 'INSTALL_RUN_LOCKFILE_PATH';
 const INSTALLED_FLAG_FILENAME: string = 'installed.flag';
 const NODE_MODULES_FOLDER_NAME: string = 'node_modules';
 const PACKAGE_JSON_FILENAME: string = 'package.json';
@@ -32,7 +33,7 @@ function _parsePackageSpecifier(rawPackageSpecifier: string): IPackageSpecifier 
   const separatorIndex: number = rawPackageSpecifier.lastIndexOf('@');
 
   let name: string;
-  let version: string | undefined = undefined;
+  let version: string | undefined;
   if (separatorIndex === 0) {
     // The specifier starts with a scope and doesn't have a version specified
     name = rawPackageSpecifier;
@@ -40,8 +41,8 @@ function _parsePackageSpecifier(rawPackageSpecifier: string): IPackageSpecifier 
     // The specifier doesn't have a version
     name = rawPackageSpecifier;
   } else {
-    name = rawPackageSpecifier.substring(0, separatorIndex);
-    version = rawPackageSpecifier.substring(separatorIndex + 1);
+    name = rawPackageSpecifier.slice(0, separatorIndex);
+    version = rawPackageSpecifier.slice(separatorIndex + 1);
   }
 
   if (!name) {
@@ -67,8 +68,18 @@ function _parsePackageSpecifier(rawPackageSpecifier: string): IPackageSpecifier 
 function _copyAndTrimNpmrcFile(sourceNpmrcPath: string, targetNpmrcPath: string): void {
   console.log(`Transforming ${sourceNpmrcPath}`); // Verbose
   console.log(`  --> "${targetNpmrcPath}"`);
-  let npmrcFileLines: string[] = fs.readFileSync(sourceNpmrcPath).toString().split('\n');
-  npmrcFileLines = npmrcFileLines.map((line) => (line || '').trim());
+  let sourceNpmrcContent: string | undefined;
+  try {
+    sourceNpmrcContent = fs.readFileSync(sourceNpmrcPath, { encoding: 'utf-8' });
+  } catch (err) {
+    if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
+      throw err;
+    } else {
+      return _deleteFile(targetNpmrcPath);
+    }
+  }
+
+  const npmrcFileLines: string[] = sourceNpmrcContent.split('\n');
   const resultLines: string[] = [];
 
   // This finds environment variable tokens that look like "${VAR_NAME}"
@@ -87,7 +98,7 @@ function _copyAndTrimNpmrcFile(sourceNpmrcPath: string, targetNpmrcPath: string)
       if (environmentVariables) {
         for (const token of environmentVariables) {
           // Remove the leading "${" and the trailing "}" from the token
-          const environmentVariableName: string = token.substring(2, token.length - 1);
+          const environmentVariableName: string = token.slice(2, -1);
 
           // Is the environment variable defined?
           if (!process.env[environmentVariableName]) {
@@ -104,11 +115,24 @@ function _copyAndTrimNpmrcFile(sourceNpmrcPath: string, targetNpmrcPath: string)
       // "; MISSING ENVIRONMENT VARIABLE: //my-registry.com/npm/:_authToken=${MY_AUTH_TOKEN}"
       resultLines.push('; MISSING ENVIRONMENT VARIABLE: ' + line);
     } else {
-      resultLines.push(line);
+      resultLines.push(line.trim());
     }
   }
 
   fs.writeFileSync(targetNpmrcPath, resultLines.join(os.EOL));
+}
+
+/**
+ * Delete a file. Fail silently if it does not exist.
+ */
+function _deleteFile(file: string): void {
+  try {
+    fs.unlinkSync(file);
+  } catch (err) {
+    if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
+      throw err;
+    }
+  }
 }
 
 /**
@@ -124,13 +148,7 @@ function _syncNpmrc(sourceNpmrcFolder: string, targetNpmrcFolder: string, useNpm
   );
   const targetNpmrcPath: string = path.join(targetNpmrcFolder, '.npmrc');
   try {
-    if (fs.existsSync(sourceNpmrcPath)) {
-      _copyAndTrimNpmrcFile(sourceNpmrcPath, targetNpmrcPath);
-    } else if (fs.existsSync(targetNpmrcPath)) {
-      // If the source .npmrc doesn't exist and there is one in the target, delete the one in the target
-      console.log(`Deleting ${targetNpmrcPath}`); // Verbose
-      fs.unlinkSync(targetNpmrcPath);
-    }
+    _copyAndTrimNpmrcFile(sourceNpmrcPath, targetNpmrcPath);
   } catch (e) {
     throw new Error(`Error syncing .npmrc file: ${e}`);
   }
@@ -146,12 +164,15 @@ export function getNpmPath(): string {
     try {
       if (os.platform() === 'win32') {
         // We're on Windows
-        const whereOutput: string = childProcess.execSync('where npm', { stdio: [] }).toString();
-        const lines: string[] = whereOutput.split(os.EOL).filter((line) => !!line);
+        const whereOutput: string = childProcess
+          .execSync('where npm', { stdio: [], encoding: 'utf-8' })
+          .toString()
+          .trim();
+        const index: number = whereOutput.lastIndexOf(os.EOL);
 
-        // take the last result, we are looking for a .cmd command
+        // take the last nonempty line, we are looking for a .cmd command
         // see https://github.com/microsoft/rushstack/issues/759
-        _npmPath = lines[lines.length - 1];
+        _npmPath = index < 0 ? whereOutput : whereOutput.slice(index + os.EOL.length);
       } else {
         // We aren't on Windows - assume we're on *NIX or Darwin
         _npmPath = childProcess.execSync('command -v npm', { stdio: [] }).toString();
@@ -169,14 +190,6 @@ export function getNpmPath(): string {
   return _npmPath;
 }
 
-function _ensureFolder(folderPath: string): void {
-  if (!fs.existsSync(folderPath)) {
-    const parentDir: string = path.dirname(folderPath);
-    _ensureFolder(parentDir);
-    fs.mkdirSync(folderPath);
-  }
-}
-
 /**
  * Create missing directories under the specified base directory, and return the resolved directory.
  *
@@ -184,32 +197,24 @@ function _ensureFolder(folderPath: string): void {
  * Assumes the baseFolder exists.
  */
 function _ensureAndJoinPath(baseFolder: string, ...pathSegments: string[]): string {
-  let joinedPath: string = baseFolder;
+  const joinedPath: string = path.join(
+    baseFolder,
+    ...pathSegments.map((segment: string) => segment.replace(/[\\\/]/g, '+'))
+  );
   try {
-    for (let pathSegment of pathSegments) {
-      pathSegment = pathSegment.replace(/[\\\/]/g, '+');
-      joinedPath = path.join(joinedPath, pathSegment);
-      if (!fs.existsSync(joinedPath)) {
-        fs.mkdirSync(joinedPath);
-      }
-    }
+    fs.mkdirSync(joinedPath, { recursive: true });
   } catch (e) {
-    throw new Error(
-      `Error building local installation folder (${path.join(baseFolder, ...pathSegments)}): ${e}`
-    );
+    throw new Error(`Error creating local installation folder (${joinedPath}): ${e}`);
   }
 
   return joinedPath;
 }
 
 function _getRushTempFolder(rushCommonFolder: string): string {
-  const rushTempFolder: string | undefined = process.env[RUSH_TEMP_FOLDER_ENV_VARIABLE_NAME];
-  if (rushTempFolder !== undefined) {
-    _ensureFolder(rushTempFolder);
-    return rushTempFolder;
-  } else {
-    return _ensureAndJoinPath(rushCommonFolder, 'temp');
-  }
+  const rushTempFolder: string | undefined =
+    process.env[RUSH_TEMP_FOLDER_ENV_VARIABLE_NAME] || path.join(rushCommonFolder, 'temp');
+  fs.mkdirSync(rushTempFolder, { recursive: true });
+  return rushTempFolder;
 }
 
 export interface IPackageSpecifier {
@@ -250,7 +255,8 @@ function _resolvePackageVersion(rushCommonFolder: string, { name, version }: IPa
         ['view', `${name}@${version}`, 'version', '--no-update-notifier'],
         {
           cwd: rushTempFolder,
-          stdio: []
+          stdio: [],
+          encoding: 'utf-8'
         }
       );
 
@@ -326,23 +332,30 @@ function _isPackageAlreadyInstalled(packageInstallFolder: string): boolean {
  *  -
  *  - node_modules
  */
-function _cleanInstallFolder(rushTempFolder: string, packageInstallFolder: string): void {
+function _cleanInstallFolder(
+  rushTempFolder: string,
+  packageInstallFolder: string,
+  lockFilePath: string | undefined
+): void {
   try {
     const flagFile: string = path.resolve(packageInstallFolder, INSTALLED_FLAG_FILENAME);
-    if (fs.existsSync(flagFile)) {
-      fs.unlinkSync(flagFile);
-    }
+    _deleteFile(flagFile);
 
     const packageLockFile: string = path.resolve(packageInstallFolder, 'package-lock.json');
-    if (fs.existsSync(packageLockFile)) {
-      fs.unlinkSync(packageLockFile);
-    }
+    if (lockFilePath) {
+      fs.copyFileSync(lockFilePath, packageLockFile);
+    } else {
+      _deleteFile(packageLockFile);
 
-    const nodeModulesFolder: string = path.resolve(packageInstallFolder, NODE_MODULES_FOLDER_NAME);
-    if (fs.existsSync(nodeModulesFolder)) {
-      const rushRecyclerFolder: string = _ensureAndJoinPath(rushTempFolder, 'rush-recycler');
-
-      fs.renameSync(nodeModulesFolder, path.join(rushRecyclerFolder, `install-run-${Date.now().toString()}`));
+      // Only need to delete ourselves if not running npm ci
+      const nodeModulesFolder: string = path.resolve(packageInstallFolder, NODE_MODULES_FOLDER_NAME);
+      if (fs.existsSync(nodeModulesFolder)) {
+        const rushRecyclerFolder: string = _ensureAndJoinPath(rushTempFolder, 'rush-recycler');
+        fs.renameSync(
+          nodeModulesFolder,
+          path.join(rushRecyclerFolder, `install-run-${Date.now().toString()}`)
+        );
+      }
     }
   } catch (e) {
     throw new Error(`Error cleaning the package install folder (${packageInstallFolder}): ${e}`);
@@ -372,18 +385,23 @@ function _createPackageJson(packageInstallFolder: string, name: string, version:
 /**
  * Run "npm install" in the package install folder.
  */
-function _installPackage(packageInstallFolder: string, name: string, version: string): void {
+function _installPackage(
+  packageInstallFolder: string,
+  name: string,
+  version: string,
+  command: 'ci' | 'install'
+): void {
   try {
     console.log(`Installing ${name}...`);
     const npmPath: string = getNpmPath();
-    const result: childProcess.SpawnSyncReturns<Buffer> = childProcess.spawnSync(npmPath, ['install'], {
+    const result: childProcess.SpawnSyncReturns<Buffer> = childProcess.spawnSync(npmPath, [command], {
       stdio: 'inherit',
       cwd: packageInstallFolder,
       env: process.env
     });
 
     if (result.status !== 0) {
-      throw new Error('"npm install" encountered an error');
+      throw new Error(`"npm ${command}" encountered an error`);
     }
 
     console.log(`Successfully installed ${name}@${version}`);
@@ -417,7 +435,8 @@ export function installAndRun(
   packageName: string,
   packageVersion: string,
   packageBinName: string,
-  packageBinArgs: string[]
+  packageBinArgs: string[],
+  lockFilePath: string | undefined = process.env[INSTALL_RUN_LOCKFILE_PATH_VARIABLE]
 ): number {
   const rushJsonFolder: string = findRushJsonFolder();
   const rushCommonFolder: string = path.join(rushJsonFolder, 'common');
@@ -430,13 +449,17 @@ export function installAndRun(
 
   if (!_isPackageAlreadyInstalled(packageInstallFolder)) {
     // The package isn't already installed
-    _cleanInstallFolder(rushTempFolder, packageInstallFolder);
+    _cleanInstallFolder(rushTempFolder, packageInstallFolder, lockFilePath);
 
     const sourceNpmrcFolder: string = path.join(rushCommonFolder, 'config', 'rush');
     _syncNpmrc(sourceNpmrcFolder, packageInstallFolder);
 
+    if (lockFilePath) {
+      console.log(`Using lockfile at ${lockFilePath}`);
+    }
+    const command: 'ci' | 'install' = lockFilePath ? 'ci' : 'install';
     _createPackageJson(packageInstallFolder, packageName, packageVersion);
-    _installPackage(packageInstallFolder, packageName, packageVersion);
+    _installPackage(packageInstallFolder, packageName, packageVersion, command);
     _writeFlagFile(packageInstallFolder);
   }
 
@@ -468,6 +491,7 @@ export function installAndRun(
   } finally {
     process.env.PATH = originalEnvPath;
   }
+
   if (result.status !== null) {
     return result.status;
   } else {
@@ -489,7 +513,6 @@ export function runWithErrorAndStatusCode(fn: () => number): void {
 function _run(): void {
   const [
     nodePath /* Ex: /bin/node */,
-    scriptPath /* /repo/common/scripts/install-run-rush.js */,
     rawPackageSpecifier /* qrcode@^1.2.0 */,
     packageBinName /* qrcode */,
     ...packageBinArgs /* [-f, myproject/lib] */
@@ -497,13 +520,6 @@ function _run(): void {
 
   if (!nodePath) {
     throw new Error('Unexpected exception: could not detect node path');
-  }
-
-  if (path.basename(scriptPath).toLowerCase() !== 'install-run.js') {
-    // If install-run.js wasn't directly invoked, don't execute the rest of this function. Return control
-    // to the script that (presumably) imported this file
-
-    return;
   }
 
   if (process.argv.length < 4) {
@@ -528,4 +544,6 @@ function _run(): void {
   });
 }
 
-_run();
+if (require.main === module) {
+  _run();
+}
