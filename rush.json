@@ -958,6 +958,12 @@
 
     // "rigs" folder (alphabetical order)
     {
+      "packageName": "@rushstack/heft-esbuild-node-rig",
+      "projectFolder": "rigs/heft-esbuild-node-rig",
+      "reviewCategory": "libraries",
+      "shouldPublish": true
+    },
+    {
       "packageName": "@rushstack/heft-node-rig",
       "projectFolder": "rigs/heft-node-rig",
       "reviewCategory": "libraries",

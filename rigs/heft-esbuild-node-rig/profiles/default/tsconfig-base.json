@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json.schemastore.org/tsconfig",
+
+  "extends": "@rushstack/heft-node-rig/profiles/default/tsconfig-base.json",
+
+  "compilerOptions": {
+    "emitDeclarationOnly": true,
+    "isolatedModules": true
+  },
+  "include": ["../../../../../src/**/*.ts", "../../../../../src/**/*.tsx"]
+}
