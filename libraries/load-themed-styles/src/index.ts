@@ -86,23 +86,38 @@ interface IThemableArrayResolveResult {
  * In sync mode, styles are registered as style elements synchronously with loadStyles() call.
  * In async mode, styles are buffered and registered as batch in async timer for performance purpose.
  */
-export const enum Mode {
-  sync,
-  async
+// eslint-disable-next-line @typescript-eslint/typedef
+export const Mode = {
+  sync: 0,
+  async: 1
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace Mode {
+  export type sync = typeof Mode.sync;
+  export type async = typeof Mode.async;
 }
+export type Mode = typeof Mode[keyof typeof Mode];
 
 /**
  * Themable styles and non-themable styles are tracked separately
  * Specify ClearStyleOptions when calling clearStyles API to specify which group of registered styles should be cleared.
  */
-export const enum ClearStyleOptions {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const ClearStyleOptions = {
   /** only themable styles will be cleared */
-  onlyThemable = 1,
+  onlyThemable: 1,
   /** only non-themable styles will be cleared */
-  onlyNonThemable = 2,
+  onlyNonThemable: 2,
   /** both themable and non-themable styles will be cleared */
-  all = 3
+  all: 3
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace ClearStyleOptions {
+  export type onlyThemable = typeof ClearStyleOptions.onlyThemable;
+  export type onlyNonThemable = typeof ClearStyleOptions.onlyNonThemable;
+  export type all = typeof ClearStyleOptions.all;
 }
+export type ClearStyleOptions = typeof ClearStyleOptions[keyof typeof ClearStyleOptions];
 
 // Store the theming state in __themeState__ global scope for reuse in the case of duplicate
 // load-themed-styles hosted on the page.

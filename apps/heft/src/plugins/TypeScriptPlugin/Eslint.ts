@@ -19,11 +19,6 @@ interface IEslintTiming {
   time: (key: string, fn: (...args: unknown[]) => void) => (...args: unknown[]) => void;
 }
 
-const enum EslintMessageSeverity {
-  warning = 1,
-  error = 2
-}
-
 export class Eslint extends LinterBase<TEslint.ESLint.LintResult> {
   private readonly _eslintPackagePath: string;
   private readonly _eslintPackage: typeof TEslint;
@@ -85,12 +80,12 @@ export class Eslint extends LinterBase<TEslint.ESLint.LintResult> {
           message.column
         );
         switch (message.severity) {
-          case EslintMessageSeverity.error: {
+          case 2 /* error */: {
             errors.push(errorObject);
             break;
           }
 
-          case EslintMessageSeverity.warning: {
+          case 1 /* warning */: {
             warnings.push(errorObject);
             break;
           }

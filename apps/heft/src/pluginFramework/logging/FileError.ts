@@ -2,10 +2,17 @@
 // See LICENSE in the project root for license information.
 import { Path, TypeUuid } from '@rushstack/node-core-library';
 
-export const enum FileErrorFormat {
-  Unix,
-  VisualStudio
+// eslint-disable-next-line @typescript-eslint/typedef
+export const FileErrorFormat = {
+  Unix: 0,
+  VisualStudio: 1
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace FileErrorFormat {
+  export type Unix = typeof FileErrorFormat.Unix;
+  export type VisualStudio = typeof FileErrorFormat.VisualStudio;
 }
+export type FileErrorFormat = typeof FileErrorFormat[keyof typeof FileErrorFormat];
 
 const uuidFileError: string = '37a4c772-2dc8-4c66-89ae-262f8cc1f0c1';
 

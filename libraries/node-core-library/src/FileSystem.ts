@@ -156,7 +156,8 @@ export interface IFileSystemCopyFileOptions extends IFileSystemCopyFileBaseOptio
  *
  * @public
  */
-export enum AlreadyExistsBehavior {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const AlreadyExistsBehavior = {
   /**
    * If the output file path already exists, try to overwrite the existing object.
    *
@@ -168,19 +169,46 @@ export enum AlreadyExistsBehavior {
    * `AlreadyExistsBehavior.Overwrite` does not help.  Empty folders can be overwritten
    * depending on the details of the implementation.
    */
-  Overwrite = 'overwrite',
+  Overwrite: 'overwrite',
 
   /**
    * If the output file path already exists, the operation will fail, and an error
    * will be reported.
    */
-  Error = 'error',
+  Error: 'error',
 
   /**
    * If the output file path already exists, skip this item, and continue the operation.
    */
-  Ignore = 'ignore'
+  Ignore: 'ignore'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace AlreadyExistsBehavior {
+  /**
+   * If the output file path already exists, try to overwrite the existing object.
+   *
+   * @remarks
+   * If overwriting the object would require recursively deleting a folder tree,
+   * then the operation will fail.  As an example, suppose {@link FileSystem.copyFile}
+   * is copying a single file `/a/b/c` to the destination path `/d/e`, and `/d/e` is a
+   * nonempty folder.  In this situation, an error will be reported; specifying
+   * `AlreadyExistsBehavior.Overwrite` does not help.  Empty folders can be overwritten
+   * depending on the details of the implementation.
+   */
+  export type Overwrite = typeof AlreadyExistsBehavior.Overwrite;
+
+  /**
+   * If the output file path already exists, the operation will fail, and an error
+   * will be reported.
+   */
+  export type Error = typeof AlreadyExistsBehavior.Error;
+
+  /**
+   * If the output file path already exists, skip this item, and continue the operation.
+   */
+  export type Ignore = typeof AlreadyExistsBehavior.Ignore;
 }
+export type AlreadyExistsBehavior = typeof AlreadyExistsBehavior[keyof typeof AlreadyExistsBehavior];
 
 /**
  * Callback function type for {@link IFileSystemCopyFilesAsyncOptions.filter}

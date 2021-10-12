@@ -5,7 +5,8 @@
  * Specifies the kind of data represented by a {@link ITerminalChunk} object.
  * @public
  */
-export const enum TerminalChunkKind {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const TerminalChunkKind = {
   /**
    * Indicates a `ITerminalChunk` object representing `stdout` console output.
    */
@@ -15,7 +16,20 @@ export const enum TerminalChunkKind {
    * Indicates a `ITerminalChunk` object representing `stderr` console output.
    */
   Stderr = 'E'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace TerminalChunkKind {
+  /**
+   * Indicates a `ITerminalChunk` object representing `stdout` console output.
+   */
+  export type Stdout = typeof TerminalChunkKind.Stdout;
+
+  /**
+   * Indicates a `ITerminalChunk` object representing `stderr` console output.
+   */
+  export type Stderr = typeof TerminalChunkKind.Stderr;
 }
+export type TerminalChunkKind = typeof TerminalChunkKind[keyof typeof TerminalChunkKind];
 
 /**
  * Represents a chunk of output that will ultimately be written to a {@link TerminalWritable}.

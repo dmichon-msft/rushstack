@@ -28,7 +28,8 @@ export interface IExtractorMessageProperties {
  * Specifies a category of messages for use with {@link ExtractorMessage}.
  * @public
  */
-export const enum ExtractorMessageCategory {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const ExtractorMessageCategory = {
   /**
    * Messages originating from the TypeScript compiler.
    *
@@ -36,7 +37,7 @@ export const enum ExtractorMessageCategory {
    * These strings begin with the prefix "TS" and have a numeric error code.
    * Example: `TS2551`
    */
-  Compiler = 'Compiler',
+  Compiler: 'Compiler',
 
   /**
    * Messages related to parsing of TSDoc comments.
@@ -45,7 +46,7 @@ export const enum ExtractorMessageCategory {
    * These strings begin with the prefix "tsdoc-".
    * Example: `tsdoc-link-tag-unescaped-text`
    */
-  TSDoc = 'TSDoc',
+  TSDoc: 'TSDoc',
 
   /**
    * Messages related to API Extractor's analysis.
@@ -54,7 +55,7 @@ export const enum ExtractorMessageCategory {
    * These strings begin with the prefix "ae-".
    * Example: `ae-extra-release-tag`
    */
-  Extractor = 'Extractor',
+  Extractor: 'Extractor',
 
   /**
    * Console messages communicate the progress of the overall operation.  They may include newlines to ensure
@@ -64,8 +65,48 @@ export const enum ExtractorMessageCategory {
    * These strings begin with the prefix "console-".
    * Example: `console-writing-typings-file`
    */
-  Console = 'console'
+  Console: 'console'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace ExtractorMessageCategory {
+  /**
+   * Messages originating from the TypeScript compiler.
+   *
+   * @remarks
+   * These strings begin with the prefix "TS" and have a numeric error code.
+   * Example: `TS2551`
+   */
+  export type Compiler = typeof ExtractorMessageCategory.Compiler;
+
+  /**
+   * Messages related to parsing of TSDoc comments.
+   *
+   * @remarks
+   * These strings begin with the prefix "tsdoc-".
+   * Example: `tsdoc-link-tag-unescaped-text`
+   */
+  export type TSDoc = typeof ExtractorMessageCategory.TSDoc;
+
+  /**
+   * Messages related to API Extractor's analysis.
+   *
+   * @remarks
+   * These strings begin with the prefix "ae-".
+   * Example: `ae-extra-release-tag`
+   */
+  export type Extractor = typeof ExtractorMessageCategory.Extractor;
+
+  /**
+   * Console messages communicate the progress of the overall operation.  They may include newlines to ensure
+   * nice formatting.  They are output in real time, and cannot be routed to the API Report file.
+   *
+   * @remarks
+   * These strings begin with the prefix "console-".
+   * Example: `console-writing-typings-file`
+   */
+  export type Console = typeof ExtractorMessageCategory.Console;
 }
+export type ExtractorMessageCategory = typeof ExtractorMessageCategory[keyof typeof ExtractorMessageCategory];
 
 /**
  * Constructor options for `ExtractorMessage`.

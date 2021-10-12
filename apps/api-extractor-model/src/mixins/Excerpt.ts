@@ -5,17 +5,31 @@ import { DeclarationReference } from '@microsoft/tsdoc/lib-commonjs/beta/Declara
 import { Text } from '@rushstack/node-core-library';
 
 /** @public */
-export enum ExcerptTokenKind {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const ExcerptTokenKind = {
   /**
    * Generic text without any special properties
    */
-  Content = 'Content',
+  Content: 'Content',
 
   /**
    * A reference to an API declaration
    */
-  Reference = 'Reference'
+  Reference: 'Reference'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace ExcerptTokenKind {
+  /**
+   * Generic text without any special properties
+   */
+  export type Content = typeof ExcerptTokenKind.Content;
+
+  /**
+   * A reference to an API declaration
+   */
+  export type Reference = typeof ExcerptTokenKind.Reference;
 }
+export type ExcerptTokenKind = typeof ExcerptTokenKind[keyof typeof ExcerptTokenKind];
 
 /**
  * Used by {@link Excerpt} to indicate a range of indexes within an array of `ExcerptToken` objects.

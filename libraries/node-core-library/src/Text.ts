@@ -4,22 +4,29 @@
 import * as os from 'os';
 
 /**
- * The allowed types of encodings, as supported by Node.js
+ * Subset of the allowed types of encodings supported by Node.js
  * @public
  */
-export enum Encoding {
-  Utf8 = 'utf8'
+// eslint-disable-next-line @typescript-eslint/typedef
+export const Encoding = {
+  Utf8: 'utf8'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace Encoding {
+  export type Utf8 = typeof Encoding.Utf8;
 }
+export type Encoding = typeof Encoding[keyof typeof Encoding];
 
 /**
  * Enumeration controlling conversion of newline characters.
  * @public
  */
-export enum NewlineKind {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const NewlineKind = {
   /**
    * Windows-style newlines
    */
-  CrLf = '\r\n',
+  CrLf: '\r\n',
 
   /**
    * POSIX-style newlines
@@ -27,13 +34,34 @@ export enum NewlineKind {
    * @remarks
    * POSIX is a registered trademark of the Institute of Electrical and Electronic Engineers, Inc.
    */
-  Lf = '\n',
+  Lf: '\n',
 
   /**
    * Default newline type for this operating system (`os.EOL`).
    */
-  OsDefault = 'os'
+  OsDefault: 'os'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace NewlineKind {
+  /**
+   * Windows-style newlines
+   */
+  export type CrLf = typeof NewlineKind.CrLf;
+
+  /**
+   * POSIX-style newlines
+   *
+   * @remarks
+   * POSIX is a registered trademark of the Institute of Electrical and Electronic Engineers, Inc.
+   */
+  export type Lf = typeof NewlineKind.Lf;
+
+  /**
+   * Default newline type for this operating system (`os.EOL`).
+   */
+  export type OsDefault = typeof NewlineKind.OsDefault;
 }
+export type NewlineKind = typeof NewlineKind[keyof typeof NewlineKind];
 
 /**
  * Operations for working with strings that contain text.

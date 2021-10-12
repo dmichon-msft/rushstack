@@ -4,15 +4,27 @@
 import { Token } from './Tokenizer';
 import { TextRange } from './TextRange';
 
-export const enum AstKind {
-  None = 'None',
-  Script = 'Script',
-  AndIf = 'AndIf',
-  Command = 'Command',
-  CompoundWord = 'CompoundWord',
-  VariableExpansion = 'VariableExpansion',
-  Text = 'Text'
+// eslint-disable-next-line @typescript-eslint/typedef
+export const AstKind = {
+  None: 'None',
+  Script: 'Script',
+  AndIf: 'AndIf',
+  Command: 'Command',
+  CompoundWord: 'CompoundWord',
+  VariableExpansion: 'VariableExpansion',
+  Text: 'Text'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace AstKind {
+  export type None = typeof AstKind.None;
+  export type Script = typeof AstKind.Script;
+  export type AndIf = typeof AstKind.AndIf;
+  export type Command = typeof AstKind.Command;
+  export type CompoundWord = typeof AstKind.CompoundWord;
+  export type VariableExpansion = typeof AstKind.VariableExpansion;
+  export type Text = typeof AstKind.Text;
 }
+export type AstKind = typeof AstKind[keyof typeof AstKind];
 
 /**
  * Base class for all AST nodes.

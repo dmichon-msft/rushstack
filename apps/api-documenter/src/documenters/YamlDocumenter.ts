@@ -68,16 +68,18 @@ interface IYamlReferences {
   uidTypeReferenceCounters: Map<string, number>;
 }
 
-const enum FlattenMode {
+// eslint-disable-next-line @typescript-eslint/typedef
+const FlattenMode = {
   /** Include entries for nested namespaces and non-namespace children. */
-  NestedNamespacesAndChildren,
+  NestedNamespacesAndChildren: 0,
   /** Include entries for nested namespaces only. */
-  NestedNamespacesOnly,
+  NestedNamespacesOnly: 1,
   /** Include entries for non-namespace immediate children. */
-  ImmediateChildren,
+  ImmediateChildren: 2,
   /** Include entries for nested non-namespace children. */
-  NestedChildren
-}
+  NestedChildren: 3
+} as const;
+type FlattenMode = typeof FlattenMode[keyof typeof FlattenMode];
 
 interface INameOptions {
   includeSignature?: boolean;

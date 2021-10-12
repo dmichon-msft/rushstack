@@ -12,14 +12,25 @@ import { DocTableRow } from './DocTableRow';
 /**
  * Identifies custom subclasses of {@link DocNode}.
  */
-export const enum CustomDocNodeKind {
-  EmphasisSpan = 'EmphasisSpan',
-  Heading = 'Heading',
-  NoteBox = 'NoteBox',
-  Table = 'Table',
-  TableCell = 'TableCell',
-  TableRow = 'TableRow'
+// eslint-disable-next-line @typescript-eslint/typedef
+export const CustomDocNodeKind = {
+  EmphasisSpan: 'EmphasisSpan',
+  Heading: 'Heading',
+  NoteBox: 'NoteBox',
+  Table: 'Table',
+  TableCell: 'TableCell',
+  TableRow: 'TableRow'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace CustomDocNodeKind {
+  export type EmphasisSpan = typeof CustomDocNodeKind.EmphasisSpan;
+  export type Heading = typeof CustomDocNodeKind.Heading;
+  export type NoteBox = typeof CustomDocNodeKind.NoteBox;
+  export type Table = typeof CustomDocNodeKind.Table;
+  export type TableCell = typeof CustomDocNodeKind.TableCell;
+  export type TableRow = typeof CustomDocNodeKind.TableRow;
 }
+export type CustomDocNodeKind = typeof CustomDocNodeKind[keyof typeof CustomDocNodeKind];
 
 export class CustomDocNodes {
   private static _configuration: TSDocConfiguration | undefined;

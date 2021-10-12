@@ -15,28 +15,53 @@ import { ApiItemContainerMixin } from '../mixins/ApiItemContainerMixin';
  *
  * @public
  */
-export enum ApiItemKind {
-  CallSignature = 'CallSignature',
-  Class = 'Class',
-  Constructor = 'Constructor',
-  ConstructSignature = 'ConstructSignature',
-  EntryPoint = 'EntryPoint',
-  Enum = 'Enum',
-  EnumMember = 'EnumMember',
-  Function = 'Function',
-  IndexSignature = 'IndexSignature',
-  Interface = 'Interface',
-  Method = 'Method',
-  MethodSignature = 'MethodSignature',
-  Model = 'Model',
-  Namespace = 'Namespace',
-  Package = 'Package',
-  Property = 'Property',
-  PropertySignature = 'PropertySignature',
-  TypeAlias = 'TypeAlias',
-  Variable = 'Variable',
-  None = 'None'
+// eslint-disable-next-line @typescript-eslint/typedef
+export const ApiItemKind = {
+  CallSignature: 'CallSignature',
+  Class: 'Class',
+  Constructor: 'Constructor',
+  ConstructSignature: 'ConstructSignature',
+  EntryPoint: 'EntryPoint',
+  Enum: 'Enum',
+  EnumMember: 'EnumMember',
+  Function: 'Function',
+  IndexSignature: 'IndexSignature',
+  Interface: 'Interface',
+  Method: 'Method',
+  MethodSignature: 'MethodSignature',
+  Model: 'Model',
+  Namespace: 'Namespace',
+  Package: 'Package',
+  Property: 'Property',
+  PropertySignature: 'PropertySignature',
+  TypeAlias: 'TypeAlias',
+  Variable: 'Variable',
+  None: 'None'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace ApiItemKind {
+  export type CallSignature = typeof ApiItemKind.CallSignature;
+  export type Class = typeof ApiItemKind.Class;
+  export type Constructor = typeof ApiItemKind.Constructor;
+  export type ConstructSignature = typeof ApiItemKind.ConstructSignature;
+  export type EntryPoint = typeof ApiItemKind.EntryPoint;
+  export type Enum = typeof ApiItemKind.Enum;
+  export type EnumMember = typeof ApiItemKind.EnumMember;
+  export type Function = typeof ApiItemKind.Function;
+  export type IndexSignature = typeof ApiItemKind.IndexSignature;
+  export type Interface = typeof ApiItemKind.Interface;
+  export type Method = typeof ApiItemKind.Method;
+  export type MethodSignature = typeof ApiItemKind.MethodSignature;
+  export type Model = typeof ApiItemKind.Model;
+  export type Namespace = typeof ApiItemKind.Namespace;
+  export type Package = typeof ApiItemKind.Package;
+  export type Property = typeof ApiItemKind.Property;
+  export type PropertySignature = typeof ApiItemKind.PropertySignature;
+  export type TypeAlias = typeof ApiItemKind.TypeAlias;
+  export type Variable = typeof ApiItemKind.Variable;
+  export type None = typeof ApiItemKind.None;
 }
+export type ApiItemKind = typeof ApiItemKind[keyof typeof ApiItemKind];
 
 /**
  * Constructor options for {@link ApiItem}.

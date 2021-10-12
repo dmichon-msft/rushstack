@@ -19,76 +19,151 @@
  *
  * @public
  */
-export enum PosixModeBits {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const PosixModeBits = {
   // The bits
 
   /**
    * Indicates that the item's owner can read the item.
    */
-  UserRead = 1 << 8,
+  UserRead: 0o400,
 
   /**
    * Indicates that the item's owner can modify the item.
    */
-  UserWrite = 1 << 7,
+  UserWrite: 0o200,
 
   /**
    * Indicates that the item's owner can execute the item (if it is a file)
    * or search the item (if it is a directory).
    */
-  UserExecute = 1 << 6,
+  UserExecute: 0o100,
 
   /**
    * Indicates that users belonging to the item's group can read the item.
    */
-  GroupRead = 1 << 5,
+  GroupRead: 0o040,
 
   /**
    * Indicates that users belonging to the item's group can modify the item.
    */
-  GroupWrite = 1 << 4,
+  GroupWrite: 0o020,
 
   /**
    * Indicates that users belonging to the item's group can execute the item (if it is a file)
    * or search the item (if it is a directory).
    */
-  GroupExecute = 1 << 3,
+  GroupExecute: 0o010,
 
   /**
    * Indicates that other users (besides the item's owner user or group) can read the item.
    */
-  OthersRead = 1 << 2,
+  OthersRead: 0o004,
 
   /**
    * Indicates that other users (besides the item's owner user or group) can modify the item.
    */
-  OthersWrite = 1 << 1,
+  OthersWrite: 0o002,
 
   /**
    * Indicates that other users (besides the item's owner user or group) can execute the item (if it is a file)
    * or search the item (if it is a directory).
    */
-  OthersExecute = 1 << 0,
+  OthersExecute: 0o001,
 
   // Helpful aliases
 
   /**
    * A zero value where no permissions bits are set.
    */
-  None = 0,
+  None: 0,
 
   /**
    * An alias combining OthersRead, GroupRead, and UserRead permission bits.
    */
-  AllRead = OthersRead | GroupRead | UserRead,
+  AllRead: 0o444,
 
   /**
    * An alias combining OthersWrite, GroupWrite, and UserWrite permission bits.
    */
-  AllWrite = OthersWrite | GroupWrite | UserWrite,
+  AllWrite: 0o222,
 
   /**
    * An alias combining OthersExecute, GroupExecute, and UserExecute permission bits.
    */
-  AllExecute = OthersExecute | GroupExecute | UserExecute
+  AllExecute: 0o111
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace PosixModeBits {
+  /**
+   * Indicates that the item's owner can read the item.
+   */
+  export type UserRead = typeof PosixModeBits.UserRead;
+
+  /**
+   * Indicates that the item's owner can modify the item.
+   */
+  export type UserWrite = typeof PosixModeBits.UserWrite;
+
+  /**
+   * Indicates that the item's owner can execute the item (if it is a file)
+   * or search the item (if it is a directory).
+   */
+  export type UserExecute = typeof PosixModeBits.UserExecute;
+
+  /**
+   * Indicates that users belonging to the item's group can read the item.
+   */
+  export type GroupRead = typeof PosixModeBits.GroupRead;
+
+  /**
+   * Indicates that users belonging to the item's group can modify the item.
+   */
+  export type GroupWrite = typeof PosixModeBits.GroupWrite;
+
+  /**
+   * Indicates that users belonging to the item's group can execute the item (if it is a file)
+   * or search the item (if it is a directory).
+   */
+  export type GroupExecute = typeof PosixModeBits.GroupExecute;
+
+  /**
+   * Indicates that other users (besides the item's owner user or group) can read the item.
+   */
+  export type OthersRead = typeof PosixModeBits.OthersRead;
+
+  /**
+   * Indicates that other users (besides the item's owner user or group) can modify the item.
+   */
+  export type OthersWrite = typeof PosixModeBits.OthersWrite;
+
+  /**
+   * Indicates that other users (besides the item's owner user or group) can execute the item (if it is a file)
+   * or search the item (if it is a directory).
+   */
+  export type OthersExecute = typeof PosixModeBits.OthersExecute;
+
+  // Helpful aliases
+
+  /**
+   * A zero value where no permissions bits are set.
+   */
+  export type None = typeof PosixModeBits.None;
+
+  /**
+   * An alias combining OthersRead, GroupRead, and UserRead permission bits.
+   */
+  export type AllRead = typeof PosixModeBits.AllRead;
+
+  /**
+   * An alias combining OthersWrite, GroupWrite, and UserWrite permission bits.
+   */
+  export type AllWrite = typeof PosixModeBits.AllWrite;
+
+  /**
+   * An alias combining OthersExecute, GroupExecute, and UserExecute permission bits.
+   */
+  export type AllExecute = typeof PosixModeBits.AllExecute;
 }
+// TypeScript doesn't allow specifying that a numeric value is scoped to 0o000-0o777, so `number`
+export type PosixModeBits = number;

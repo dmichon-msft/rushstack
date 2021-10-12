@@ -56,9 +56,17 @@ export class CommandLineChoiceParameter extends CommandLineParameter {
 }
 
 // @public
-export const enum CommandLineConstants {
-    TabCompletionActionName = "tab-complete"
+export const CommandLineConstants: {
+    readonly TabCompletionActionName: "tab-complete";
+};
+
+// @public (undocumented)
+export namespace CommandLineConstants {
+    export type TabCompletionActionName = typeof CommandLineConstants.TabCompletionActionName;
 }
+
+// @public (undocumented)
+export type CommandLineConstants = typeof CommandLineConstants[keyof typeof CommandLineConstants];
 
 // @public
 export class CommandLineFlagParameter extends CommandLineParameter {

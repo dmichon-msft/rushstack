@@ -9,14 +9,15 @@
  *
  * @public
  */
-export const enum ExtractorLogLevel {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const ExtractorLogLevel = {
   /**
    * The message will be displayed as an error.
    *
    * @remarks
    * Errors typically cause the build to fail and return a nonzero exit code.
    */
-  Error = 'error',
+  Error: 'error',
 
   /**
    * The message will be displayed as an warning.
@@ -25,7 +26,7 @@ export const enum ExtractorLogLevel {
    * Warnings typically cause a production build fail and return a nonzero exit code.  For a non-production build
    * (e.g. using the `--local` option with `api-extractor run`), the warning is displayed but the build will not fail.
    */
-  Warning = 'warning',
+  Warning: 'warning',
 
   /**
    * The message will be displayed as an informational message.
@@ -34,16 +35,56 @@ export const enum ExtractorLogLevel {
    * Informational messages may contain newlines to ensure nice formatting of the output,
    * however word-wrapping is the responsibility of the message handler.
    */
-  Info = 'info',
+  Info: 'info',
 
   /**
    * The message will be displayed only when "verbose" output is requested, e.g. using the `--verbose`
    * command line option.
    */
-  Verbose = 'verbose',
+  Verbose: 'verbose',
 
   /**
    * The message will be discarded entirely.
    */
-  None = 'none'
+  None: 'none'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace ExtractorLogLevel {
+  /**
+   * The message will be displayed as an error.
+   *
+   * @remarks
+   * Errors typically cause the build to fail and return a nonzero exit code.
+   */
+  export type Error = typeof ExtractorLogLevel.Error;
+
+  /**
+   * The message will be displayed as an warning.
+   *
+   * @remarks
+   * Warnings typically cause a production build fail and return a nonzero exit code.  For a non-production build
+   * (e.g. using the `--local` option with `api-extractor run`), the warning is displayed but the build will not fail.
+   */
+  export type Warning = typeof ExtractorLogLevel.Warning;
+
+  /**
+   * The message will be displayed as an informational message.
+   *
+   * @remarks
+   * Informational messages may contain newlines to ensure nice formatting of the output,
+   * however word-wrapping is the responsibility of the message handler.
+   */
+  export type Info = typeof ExtractorLogLevel.Info;
+
+  /**
+   * The message will be displayed only when "verbose" output is requested, e.g. using the `--verbose`
+   * command line option.
+   */
+  export type Verbose = typeof ExtractorLogLevel.Verbose;
+
+  /**
+   * The message will be discarded entirely.
+   */
+  export type None = typeof ExtractorLogLevel.None;
 }
+export type ExtractorLogLevel = typeof ExtractorLogLevel[keyof typeof ExtractorLogLevel];

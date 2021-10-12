@@ -22,12 +22,21 @@ import { CommonVersionsConfiguration } from '../api/CommonVersionsConfiguration'
 /**
  * The type of SemVer range specifier that is prepended to the version
  */
-export const enum SemVerStyle {
-  Exact = 'exact',
-  Caret = 'caret',
-  Tilde = 'tilde',
-  Passthrough = 'passthrough'
+// eslint-disable-next-line @typescript-eslint/typedef
+export const SemVerStyle = {
+  Exact: 'exact',
+  Caret: 'caret',
+  Tilde: 'tilde',
+  Passthrough: 'passthrough'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace SemVerStyle {
+  export type Exact = typeof SemVerStyle.Exact;
+  export type Caret = typeof SemVerStyle.Caret;
+  export type Tilde = typeof SemVerStyle.Tilde;
+  export type Passthrough = typeof SemVerStyle.Passthrough;
 }
+export type SemVerStyle = typeof SemVerStyle[keyof typeof SemVerStyle];
 
 export interface IPackageForRushAdd {
   packageName: string;

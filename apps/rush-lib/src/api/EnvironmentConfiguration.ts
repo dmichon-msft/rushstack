@@ -18,7 +18,8 @@ export interface IEnvironmentConfigurationInitializeOptions {
  * Names of environment variables used by Rush.
  * @beta
  */
-export enum EnvironmentVariableNames {
+// eslint-disable-next-line @typescript-eslint/typedef
+export const EnvironmentVariableNames = {
   /**
    * This variable overrides the temporary folder used by Rush.
    * The default value is "common/temp" under the repository root.
@@ -26,28 +27,28 @@ export enum EnvironmentVariableNames {
    * @remarks This environment variable is not compatible with workspace installs. If attempting
    * to move the PNPM store path, see the `RUSH_PNPM_STORE_PATH` environment variable.
    */
-  RUSH_TEMP_FOLDER = 'RUSH_TEMP_FOLDER',
+  RUSH_TEMP_FOLDER: 'RUSH_TEMP_FOLDER',
 
   /**
    * This variable overrides the version of Rush that will be installed by
    * the version selector.  The default value is determined by the "rushVersion"
    * field from rush.json.
    */
-  RUSH_PREVIEW_VERSION = 'RUSH_PREVIEW_VERSION',
+  RUSH_PREVIEW_VERSION: 'RUSH_PREVIEW_VERSION',
 
   /**
    * If this variable is set to "1", Rush will not fail the build when running a version
    * of Node that does not match the criteria specified in the "nodeSupportedVersionRange"
    * field from rush.json.
    */
-  RUSH_ALLOW_UNSUPPORTED_NODEJS = 'RUSH_ALLOW_UNSUPPORTED_NODEJS',
+  RUSH_ALLOW_UNSUPPORTED_NODEJS: 'RUSH_ALLOW_UNSUPPORTED_NODEJS',
 
   /**
    * Setting this environment variable overrides the value of `allowWarningsInSuccessfulBuild`
    * in the `command-line.json` configuration file. Specify `1` to allow warnings in a successful build,
    * or `0` to disallow them. (See the comments in the command-line.json file for more information).
    */
-  RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD = 'RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD',
+  RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: 'RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD',
 
   /**
    * This variable selects a specific installation variant for Rush to use when installing
@@ -55,20 +56,20 @@ export enum EnvironmentVariableNames {
    * For more information, see the command-line help for the `--variant` parameter
    * and this article:  https://rushjs.io/pages/advanced/installation_variants/
    */
-  RUSH_VARIANT = 'RUSH_VARIANT',
+  RUSH_VARIANT: 'RUSH_VARIANT',
 
   /**
    * Specifies the maximum number of concurrent processes to launch during a build.
    * For more information, see the command-line help for the `--parallelism` parameter for "rush build".
    */
-  RUSH_PARALLELISM = 'RUSH_PARALLELISM',
+  RUSH_PARALLELISM: 'RUSH_PARALLELISM',
 
   /**
    * If this variable is set to "1", Rush will create symlinks with absolute paths instead
    * of relative paths. This can be necessary when a repository is moved during a build or
    * if parts of a repository are moved into a sandbox.
    */
-  RUSH_ABSOLUTE_SYMLINKS = 'RUSH_ABSOLUTE_SYMLINKS',
+  RUSH_ABSOLUTE_SYMLINKS: 'RUSH_ABSOLUTE_SYMLINKS',
 
   /**
    * When using PNPM as the package manager, this variable can be used to configure the path that
@@ -77,13 +78,13 @@ export enum EnvironmentVariableNames {
    * If a relative path is used, then the store path will be resolved relative to the process's
    * current working directory.  An absolute path is recommended.
    */
-  RUSH_PNPM_STORE_PATH = 'RUSH_PNPM_STORE_PATH',
+  RUSH_PNPM_STORE_PATH: 'RUSH_PNPM_STORE_PATH',
 
   /**
    * This environment variable can be used to specify the `--target-folder` parameter
    * for the "rush deploy" command.
    */
-  RUSH_DEPLOY_TARGET_FOLDER = 'RUSH_DEPLOY_TARGET_FOLDER',
+  RUSH_DEPLOY_TARGET_FOLDER: 'RUSH_DEPLOY_TARGET_FOLDER',
 
   /**
    * Overrides the location of the `~/.rush` global folder where Rush stores temporary files.
@@ -101,7 +102,7 @@ export enum EnvironmentVariableNames {
    *
    * POSIX is a registered trademark of the Institute of Electrical and Electronic Engineers, Inc.
    */
-  RUSH_GLOBAL_FOLDER = 'RUSH_GLOBAL_FOLDER',
+  RUSH_GLOBAL_FOLDER: 'RUSH_GLOBAL_FOLDER',
 
   /**
    * Provides a credential for a remote build cache, if configured. Setting this environment variable
@@ -116,7 +117,7 @@ export enum EnvironmentVariableNames {
    *
    * For information on SAS tokens, see here: https://docs.microsoft.com/en-us/azure/storage/common/storage-sas-overview
    */
-  RUSH_BUILD_CACHE_CREDENTIAL = 'RUSH_BUILD_CACHE_CREDENTIAL',
+  RUSH_BUILD_CACHE_CREDENTIAL: 'RUSH_BUILD_CACHE_CREDENTIAL',
 
   /**
    * Setting this environment variable overrides the value of `buildCacheEnabled` in the `build-cache.json`
@@ -124,23 +125,23 @@ export enum EnvironmentVariableNames {
    *
    * If set to `0`, this is equivalent to passing the `--disable-build-cache` flag.
    */
-  RUSH_BUILD_CACHE_ENABLED = 'RUSH_BUILD_CACHE_ENABLED',
+  RUSH_BUILD_CACHE_ENABLED: 'RUSH_BUILD_CACHE_ENABLED',
 
   /**
    * Setting this environment variable overrides the value of `isCacheWriteAllowed` in the `build-cache.json`
    * configuration file. Specify `1` to allow cache write and `0` to disable it.
    */
-  RUSH_BUILD_CACHE_WRITE_ALLOWED = 'RUSH_BUILD_CACHE_WRITE_ALLOWED',
+  RUSH_BUILD_CACHE_WRITE_ALLOWED: 'RUSH_BUILD_CACHE_WRITE_ALLOWED',
 
   /**
    * Allows the git binary path to be explicitly specified.
    */
-  RUSH_GIT_BINARY_PATH = 'RUSH_GIT_BINARY_PATH',
+  RUSH_GIT_BINARY_PATH: 'RUSH_GIT_BINARY_PATH',
 
   /**
    * Allows the tar binary path to be explicitly specified.
    */
-  RUSH_TAR_BINARY_PATH = 'RUSH_TAR_BINARY_PATH',
+  RUSH_TAR_BINARY_PATH: 'RUSH_TAR_BINARY_PATH',
 
   /**
    * When Rush executes shell scripts, it sometimes changes the working directory to be a project folder or
@@ -151,8 +152,146 @@ export enum EnvironmentVariableNames {
    * The `RUSH_INVOKED_FOLDER` variable is the same idea as the `INIT_CWD` variable that package managers
    * assign when they execute lifecycle scripts.
    */
-  RUSH_INVOKED_FOLDER = 'RUSH_INVOKED_FOLDER'
+  RUSH_INVOKED_FOLDER: 'RUSH_INVOKED_FOLDER'
+} as const;
+// eslint-disable-next-line @typescript-eslint/no-namespace
+export declare namespace EnvironmentVariableNames {
+  /**
+   * This variable overrides the temporary folder used by Rush.
+   * The default value is "common/temp" under the repository root.
+   *
+   * @remarks This environment variable is not compatible with workspace installs. If attempting
+   * to move the PNPM store path, see the `RUSH_PNPM_STORE_PATH` environment variable.
+   */
+  export type RUSH_TEMP_FOLDER = typeof EnvironmentVariableNames.RUSH_TEMP_FOLDER;
+
+  /**
+   * This variable overrides the version of Rush that will be installed by
+   * the version selector.  The default value is determined by the "rushVersion"
+   * field from rush.json.
+   */
+  export type RUSH_PREVIEW_VERSION = typeof EnvironmentVariableNames.RUSH_PREVIEW_VERSION;
+
+  /**
+   * If this variable is set to "1", Rush will not fail the build when running a version
+   * of Node that does not match the criteria specified in the "nodeSupportedVersionRange"
+   * field from rush.json.
+   */
+  export type RUSH_ALLOW_UNSUPPORTED_NODEJS = typeof EnvironmentVariableNames.RUSH_ALLOW_UNSUPPORTED_NODEJS;
+
+  /**
+   * Setting this environment variable overrides the value of `allowWarningsInSuccessfulBuild`
+   * in the `command-line.json` configuration file. Specify `1` to allow warnings in a successful build,
+   * or `0` to disallow them. (See the comments in the command-line.json file for more information).
+   */
+  export type RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD =
+    typeof EnvironmentVariableNames.RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD;
+
+  /**
+   * This variable selects a specific installation variant for Rush to use when installing
+   * and linking package dependencies.
+   * For more information, see the command-line help for the `--variant` parameter
+   * and this article:  https://rushjs.io/pages/advanced/installation_variants/
+   */
+  export type RUSH_VARIANT = typeof EnvironmentVariableNames.RUSH_VARIANT;
+
+  /**
+   * Specifies the maximum number of concurrent processes to launch during a build.
+   * For more information, see the command-line help for the `--parallelism` parameter for "rush build".
+   */
+  export type RUSH_PARALLELISM = typeof EnvironmentVariableNames.RUSH_PARALLELISM;
+
+  /**
+   * If this variable is set to "1", Rush will create symlinks with absolute paths instead
+   * of relative paths. This can be necessary when a repository is moved during a build or
+   * if parts of a repository are moved into a sandbox.
+   */
+  export type RUSH_ABSOLUTE_SYMLINKS = typeof EnvironmentVariableNames.RUSH_ABSOLUTE_SYMLINKS;
+
+  /**
+   * When using PNPM as the package manager, this variable can be used to configure the path that
+   * PNPM will use as the store directory.
+   *
+   * If a relative path is used, then the store path will be resolved relative to the process's
+   * current working directory.  An absolute path is recommended.
+   */
+  export type RUSH_PNPM_STORE_PATH = typeof EnvironmentVariableNames.RUSH_PNPM_STORE_PATH;
+
+  /**
+   * This environment variable can be used to specify the `--target-folder` parameter
+   * for the "rush deploy" command.
+   */
+  export type RUSH_DEPLOY_TARGET_FOLDER = typeof EnvironmentVariableNames.RUSH_DEPLOY_TARGET_FOLDER;
+
+  /**
+   * Overrides the location of the `~/.rush` global folder where Rush stores temporary files.
+   *
+   * @remarks
+   *
+   * Most of the temporary files created by Rush are stored separately for each monorepo working folder,
+   * to avoid issues of concurrency and compatibility between tool versions.  However, a small set
+   * of files (e.g. installations of the `@microsoft/rush-lib` engine and the package manager) are stored
+   * in a global folder to speed up installations.  The default location is `~/.rush` on POSIX-like
+   * operating systems or `C:\Users\YourName` on Windows.
+   *
+   * Use `RUSH_GLOBAL_FOLDER` to specify a different folder path.  This is useful for example if a Windows
+   * group policy forbids executing scripts installed in a user's home directory.
+   *
+   * POSIX is a registered trademark of the Institute of Electrical and Electronic Engineers, Inc.
+   */
+  export type RUSH_GLOBAL_FOLDER = typeof EnvironmentVariableNames.RUSH_GLOBAL_FOLDER;
+
+  /**
+   * Provides a credential for a remote build cache, if configured. Setting this environment variable
+   * overrides whatever credential has been saved in the local cloud cache credentials using
+   * `rush update-cloud-credentials`.
+   *
+   * @remarks
+   * This credential overrides any cached credentials.
+   *
+   * If Azure Blob Storage is used to store cache entries, this must be a SAS token serialized as query
+   * parameters.
+   *
+   * For information on SAS tokens, see here: https://docs.microsoft.com/en-us/azure/storage/common/storage-sas-overview
+   */
+  export type RUSH_BUILD_CACHE_CREDENTIAL = typeof EnvironmentVariableNames.RUSH_BUILD_CACHE_CREDENTIAL;
+
+  /**
+   * Setting this environment variable overrides the value of `buildCacheEnabled` in the `build-cache.json`
+   * configuration file. Specify `1` to enable the build cache or `0` to disable it.
+   *
+   * If set to `0`, this is equivalent to passing the `--disable-build-cache` flag.
+   */
+  export type RUSH_BUILD_CACHE_ENABLED = typeof EnvironmentVariableNames.RUSH_BUILD_CACHE_ENABLED;
+
+  /**
+   * Setting this environment variable overrides the value of `isCacheWriteAllowed` in the `build-cache.json`
+   * configuration file. Specify `1` to allow cache write and `0` to disable it.
+   */
+  export type RUSH_BUILD_CACHE_WRITE_ALLOWED = typeof EnvironmentVariableNames.RUSH_BUILD_CACHE_WRITE_ALLOWED;
+
+  /**
+   * Allows the git binary path to be explicitly specified.
+   */
+  export type RUSH_GIT_BINARY_PATH = typeof EnvironmentVariableNames.RUSH_GIT_BINARY_PATH;
+
+  /**
+   * Allows the tar binary path to be explicitly specified.
+   */
+  export type RUSH_TAR_BINARY_PATH = typeof EnvironmentVariableNames.RUSH_TAR_BINARY_PATH;
+
+  /**
+   * When Rush executes shell scripts, it sometimes changes the working directory to be a project folder or
+   * the repository root folder.  The original working directory (where the Rush command was invoked) is assigned
+   * to the the child process's `RUSH_INVOKED_FOLDER` environment variable, in case it is needed by the script.
+   *
+   * @remarks
+   * The `RUSH_INVOKED_FOLDER` variable is the same idea as the `INIT_CWD` variable that package managers
+   * assign when they execute lifecycle scripts.
+   */
+  export type RUSH_INVOKED_FOLDER = typeof EnvironmentVariableNames.RUSH_INVOKED_FOLDER;
 }
+export type EnvironmentVariableNames = typeof EnvironmentVariableNames[keyof typeof EnvironmentVariableNames];
 
 /**
  * Provides Rush-specific environment variable data. All Rush environment variables must start with "RUSH_". This class
