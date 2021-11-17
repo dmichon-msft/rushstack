@@ -5,7 +5,6 @@
 import './jestWorkerPatch';
 
 import * as path from 'path';
-import { resolve as jestResolve, resolveWithPrefix as jestResolveWithPrefix } from 'jest-config/build/utils';
 import { mergeWith, isObject } from 'lodash';
 import type {
   ICleanStageContext,
@@ -523,19 +522,10 @@ export class JestPlugin implements IHeftPlugin<IJestPluginOptions> {
           return path.join(PLUGIN_PACKAGE_FOLDER, restOfPath);
         }
 
-        return options.modulePrefix
-          ? jestResolveWithPrefix(/*resolver:*/ undefined, {
-              rootDir: configDir,
-              filePath: propertyValue,
-              prefix: options.modulePrefix,
-              humanOptionName: propertyName,
-              optionName: propertyName
-            })
-          : jestResolve(/*resolver:*/ undefined, {
-              rootDir: configDir,
-              filePath: propertyValue,
-              key: propertyName
-            });
+        return Import.resolveModule({
+          modulePath: propertyValue,
+          baseFolderPath: configDir
+        });
       },
       pathResolutionMethod: PathResolutionMethod.custom
     };

@@ -20,6 +20,8 @@
   // Code coverage tracking is disabled by default; set this to true to enable it
   "collectCoverage": false,
 
+  "maxWorkers": 1,
+
   "coverageDirectory": "<rootDir>/temp/coverage",
 
   "collectCoverageFrom": [

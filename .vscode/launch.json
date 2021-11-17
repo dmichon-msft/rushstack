@@ -44,6 +44,31 @@
 			"sourceMaps": true
 		},
 		{
+			"name": "Debug Heft-Jest",
+			"type": "node",
+			"request": "launch",
+			"program": "./node_modules/@rushstack/heft/lib/start.js",
+			"stopOnEntry": false,
+			"args": [
+				"--debug",
+				"test"
+			],
+			"cwd": "${workspaceRoot}/heft-plugins/heft-jest-plugin",
+			"runtimeExecutable": null,
+			"runtimeArgs": [
+				"--nolazy",
+        "--inspect"
+			],
+			"env": {
+				"NODE_ENV": "development"
+			},
+      "skipFiles": ["<node_internals>/**"],
+			"outFiles": ["${workspaceRoot}/heft-plugins/heft-jest-plugin/lib"],
+			"sourceMaps": true,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+		},
+		{
 			"name": "Attach",
 			"type": "node",
 			"request": "attach",

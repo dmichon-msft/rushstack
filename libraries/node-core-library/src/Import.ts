@@ -219,23 +219,24 @@ export class Import {
       return modulePath;
     }
 
-    if (options.allowSelfReference === true) {
-      const ownPackage: IPackageDescriptor | undefined = Import._getPackageName(options.baseFolderPath);
-      if (ownPackage && modulePath.startsWith(ownPackage.packageName)) {
-        const packagePath: string = modulePath.substr(ownPackage.packageName.length + 1);
+    const ownPackage: IPackageDescriptor | undefined = Import._getPackageName(options.baseFolderPath);
+    if (ownPackage && modulePath.startsWith(ownPackage.packageName)) {
+      if (options.allowSelfReference === true) {
+        const packagePath: string = modulePath.slice(ownPackage.packageName.length + 1);
         return path.resolve(ownPackage.packageRootPath, packagePath);
+      } else {
+        throw new Error(`Cannot find module "${modulePath}" from "${options.baseFolderPath}".`);
       }
     }
 
     try {
-      return Resolve.sync(
-        // Append a slash to the package name to ensure `resolve.sync` doesn't attempt to return a system package
+      // Append a slash to the package name to ensure `require.resolve` doesn't attempt to return a system package
+      return require.resolve(
         options.includeSystemModules !== true && modulePath.indexOf('/') === -1
           ? `${modulePath}/`
           : modulePath,
         {
-          basedir: normalizedRootPath,
-          preserveSymlinks: false
+          paths: [normalizedRootPath]
         }
       );
     } catch (e) {

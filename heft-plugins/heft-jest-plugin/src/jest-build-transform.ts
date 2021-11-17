@@ -3,8 +3,7 @@
 
 import * as path from 'path';
 import { Path, FileSystem, FileSystemStats, JsonObject } from '@rushstack/node-core-library';
-import { InitialOptionsWithRootDir } from '@jest/types/build/Config';
-import { TransformedSource } from '@jest/transform';
+import { TransformOptions, TransformedSource } from '@jest/transform';
 
 import { HeftJestDataFile, IHeftJestDataFileJson } from './HeftJestDataFile';
 
@@ -38,18 +37,19 @@ const POLLING_INTERVAL_MS: number = 50;
 export function process(
   srcCode: string,
   srcFilePath: string,
-  jestOptions: InitialOptionsWithRootDir
+  jestOptions: TransformOptions
 ): TransformedSource {
-  let heftJestDataFile: IHeftJestDataFileJson | undefined = dataFileJsonCache.get(jestOptions.rootDir);
+  const { rootDir } = jestOptions.config;
+  let heftJestDataFile: IHeftJestDataFileJson | undefined = dataFileJsonCache.get(rootDir);
   if (heftJestDataFile === undefined) {
     // Read heft-jest-data.json, which is created by the JestPlugin.  It tells us
     // which emitted output folder to use for Jest.
-    heftJestDataFile = HeftJestDataFile.loadForProject(jestOptions.rootDir);
-    dataFileJsonCache.set(jestOptions.rootDir, heftJestDataFile);
+    heftJestDataFile = HeftJestDataFile.loadForProject(rootDir);
+    dataFileJsonCache.set(rootDir, heftJestDataFile);
   }
 
   // Is the input file under the "src" folder?
-  const srcFolder: string = path.join(jestOptions.rootDir, 'src');
+  const srcFolder: string = path.join(rootDir, 'src');
 
   if (Path.isUnder(srcFilePath, srcFolder)) {
     // Example: /path/to/project/src/folder1/folder2/Example.ts
@@ -60,7 +60,7 @@ export function process(
 
     // Example: /path/to/project/lib/folder1/folder2/Example.js
     const libFilePath: string = path.join(
-      jestOptions.rootDir,
+      rootDir,
       heftJestDataFile.emitFolderNameForTests,
       srcRelativeFolderPath,
       `${parsedFilename.name}${heftJestDataFile.extensionForTests}`

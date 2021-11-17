@@ -2,7 +2,6 @@
 // See LICENSE in the project root for license information.
 
 import * as path from 'path';
-import { InitialOptionsWithRootDir } from '@jest/types/build/Config';
 import { FileSystem } from '@rushstack/node-core-library';
 
 // The transpiled output for IdentityMockProxy.ts
@@ -20,6 +19,6 @@ const proxyCode: string = FileSystem.readFile(path.join(__dirname, 'identityMock
  * (We don't import the actual "identity-obj-proxy" package because transform output gets resolved with respect
  * to the target project folder, not Heft's folder.)
  */
-export function process(src: string, filename: string, jestOptions: InitialOptionsWithRootDir): string {
+export function process(src: string, filename: string, jestOptions: unknown): string {
   return proxyCode;
 }
