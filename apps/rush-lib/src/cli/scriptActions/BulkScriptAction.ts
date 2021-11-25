@@ -9,7 +9,7 @@ import { CommandLineFlagParameter, CommandLineStringParameter } from '@rushstack
 
 import { Event } from '../../index';
 import { SetupChecks } from '../../logic/SetupChecks';
-import { ITaskSelectorOptions, TaskSelector } from '../../logic/TaskSelector';
+import { ICreateTasksOptions, ITaskSelectorOptions, TaskSelector } from '../../logic/TaskSelector';
 import { Stopwatch, StopwatchState } from '../../utilities/Stopwatch';
 import { BaseScriptAction, IBaseScriptActionOptions } from './BaseScriptAction';
 import { ITaskRunnerOptions, TaskRunner } from '../../logic/taskRunner/TaskRunner';
@@ -42,7 +42,8 @@ export interface IBulkScriptActionOptions extends IBaseScriptActionOptions {
 }
 
 interface IExecuteInternalOptions {
-  taskSelectorOptions: ITaskSelectorOptions;
+  taskSelector: TaskSelector;
+  createTasksOptions: ICreateTasksOptions;
   taskRunnerOptions: ITaskRunnerOptions;
   stopwatch: Stopwatch;
   ignoreHooks?: boolean;
@@ -142,7 +143,6 @@ export class BulkScriptAction extends BaseScriptAction {
     const taskSelectorOptions: ITaskSelectorOptions = {
       rushConfiguration: this.rushConfiguration,
       buildCacheConfiguration,
-      selection,
       commandName: this.actionName,
       commandToRun: this._commandToRun,
       customParameterValues,
@@ -164,8 +164,11 @@ export class BulkScriptAction extends BaseScriptAction {
       repoCommandLineConfiguration: this._repoCommandLineConfiguration
     };
 
+    const taskSelector: TaskSelector = new TaskSelector(taskSelectorOptions);
+
     const executeOptions: IExecuteInternalOptions = {
-      taskSelectorOptions,
+      taskSelector,
+      createTasksOptions: { selection },
       taskRunnerOptions,
       stopwatch,
       terminal
@@ -187,7 +190,9 @@ export class BulkScriptAction extends BaseScriptAction {
    */
   private async _runWatch(options: IExecuteInternalOptions): Promise<void> {
     const {
-      taskSelectorOptions: { selection: projectsToWatch },
+      taskSelector,
+      createTasksOptions: { selection: projectsToWatch },
+      taskRunnerOptions,
       stopwatch,
       terminal
     } = options;
@@ -226,7 +231,7 @@ export class BulkScriptAction extends BaseScriptAction {
       }
 
       terminal.writeLine(`Detected changes in ${selection.size} project${selection.size === 1 ? '' : 's'}:`);
-      const names: string[] = [...selection].map((x) => x.packageName).sort();
+      const names: string[] = Array.from(selection, (x) => x.packageName).sort();
       for (const name of names) {
         terminal.writeLine(`    ${colors.cyan(name)}`);
       }
@@ -238,14 +243,14 @@ export class BulkScriptAction extends BaseScriptAction {
       }
 
       const executeOptions: IExecuteInternalOptions = {
-        taskSelectorOptions: {
-          ...options.taskSelectorOptions,
+        taskSelector,
+        createTasksOptions: {
           // Revise down the set of projects to execute the command on
           selection,
           // Pass the ProjectChangeAnalyzer from the state differ to save a bit of overhead
           projectChangeAnalyzer: state
         },
-        taskRunnerOptions: options.taskRunnerOptions,
+        taskRunnerOptions,
         stopwatch,
         // For now, don't run pre-build or post-build in watch mode
         ignoreHooks: true,
@@ -312,12 +317,12 @@ export class BulkScriptAction extends BaseScriptAction {
    * Runs a single invocation of the command
    */
   private async _runOnce(options: IExecuteInternalOptions): Promise<void> {
-    const taskSelector: TaskSelector = new TaskSelector(options.taskSelectorOptions);
+    const { taskSelector } = options;
 
     // Register all tasks with the task collection
 
     const taskRunner: TaskRunner = new TaskRunner(
-      taskSelector.registerTasks().getOrderedTasks(),
+      taskSelector.createTasks(options.createTasksOptions),
       options.taskRunnerOptions
     );
 

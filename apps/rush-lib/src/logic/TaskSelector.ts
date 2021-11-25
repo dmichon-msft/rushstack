@@ -6,12 +6,12 @@ import { RushConfiguration } from '../api/RushConfiguration';
 import { RushConfigurationProject } from '../api/RushConfigurationProject';
 import { ProjectBuilder, convertSlashesForWindows } from '../logic/taskRunner/ProjectBuilder';
 import { ProjectChangeAnalyzer } from './ProjectChangeAnalyzer';
-import { TaskCollection } from './taskRunner/TaskCollection';
+import { Task } from './taskRunner/Task';
+import { TaskStatus } from './taskRunner/TaskStatus';
 
 export interface ITaskSelectorOptions {
   rushConfiguration: RushConfiguration;
   buildCacheConfiguration: BuildCacheConfiguration | undefined;
-  selection: ReadonlySet<RushConfigurationProject>;
   commandName: string;
   commandToRun: string;
   customParameterValues: string[];
@@ -21,8 +21,12 @@ export interface ITaskSelectorOptions {
   ignoreMissingScript: boolean;
   ignoreDependencyOrder: boolean;
   packageDepsFilename: string;
-  projectChangeAnalyzer?: ProjectChangeAnalyzer;
   allowWarningsInSuccessfulBuild?: boolean;
+}
+
+export interface ICreateTasksOptions {
+  selection: ReadonlySet<RushConfigurationProject>;
+  projectChangeAnalyzer?: ProjectChangeAnalyzer;
 }
 
 /**
@@ -32,15 +36,10 @@ export interface ITaskSelectorOptions {
  *  - registering the necessary ProjectBuilders with the TaskRunner, which actually orchestrates execution
  */
 export class TaskSelector {
-  private _options: ITaskSelectorOptions;
-  private _projectChangeAnalyzer: ProjectChangeAnalyzer;
+  private readonly _options: ITaskSelectorOptions;
 
   public constructor(options: ITaskSelectorOptions) {
     this._options = options;
-
-    const { projectChangeAnalyzer = new ProjectChangeAnalyzer(options.rushConfiguration) } = options;
-
-    this._projectChangeAnalyzer = projectChangeAnalyzer;
   }
 
   public static getScriptToRun(
@@ -62,81 +61,100 @@ export class TaskSelector {
     }
   }
 
-  public registerTasks(): TaskCollection {
-    const projects: ReadonlySet<RushConfigurationProject> = this._options.selection;
-    const taskCollection: TaskCollection = new TaskCollection();
+  /**
+   * Creates tasks for the selected projects, using the specified ProjectChangeAnalyzer for change detection.
+   */
+  public createTasks(createTasksOptions: ICreateTasksOptions): Set<Task> {
+    const { _options: options } = this;
+
+    const {
+      selection: projects,
+      projectChangeAnalyzer = new ProjectChangeAnalyzer(options.rushConfiguration)
+    } = createTasksOptions;
+
+    const taskByProject: Map<RushConfigurationProject, Task> = new Map();
 
     // Register all tasks
-    for (const rushProject of projects) {
-      this._registerTask(rushProject, taskCollection);
+    for (const project of projects) {
+      const commandToRun: string | undefined = TaskSelector.getScriptToRun(
+        project,
+        options.commandToRun,
+        options.customParameterValues
+      );
+
+      if (commandToRun === undefined && !options.ignoreMissingScript) {
+        throw new Error(
+          `The project [${project.packageName}] does not define a '${options.commandToRun}' command in the 'scripts' section of its package.json`
+        );
+      }
+
+      const task: Task = new Task(
+        new ProjectBuilder({
+          // Common parameters
+          rushConfiguration: options.rushConfiguration,
+          buildCacheConfiguration: options.buildCacheConfiguration,
+          commandName: options.commandName,
+          isIncrementalBuildAllowed: options.isIncrementalBuildAllowed,
+          projectChangeAnalyzer,
+          packageDepsFilename: options.packageDepsFilename,
+          allowWarningsInSuccessfulBuild: options.allowWarningsInSuccessfulBuild,
+          // Project-specific parameters
+          rushProject: project,
+          commandToRun: commandToRun || ''
+        }),
+        TaskStatus.Ready
+      );
+
+      taskByProject.set(project, task);
     }
 
-    if (!this._options.ignoreDependencyOrder) {
-      const dependencyMap: Map<RushConfigurationProject, Set<string>> = new Map();
+    if (!options.ignoreDependencyOrder) {
+      const dependencyMap: Map<RushConfigurationProject, Set<RushConfigurationProject>> = new Map();
 
       // Generate the filtered dependency graph for selected projects
-      function getDependencyTaskNames(project: RushConfigurationProject): Set<string> {
-        const cached: Set<string> | undefined = dependencyMap.get(project);
+      function getSelectedDependencies(project: RushConfigurationProject): Set<RushConfigurationProject> {
+        const cached: Set<RushConfigurationProject> | undefined = dependencyMap.get(project);
         if (cached) {
           return cached;
         }
 
-        const dependencyTaskNames: Set<string> = new Set();
-        dependencyMap.set(project, dependencyTaskNames);
+        const filteredDependencies: Set<RushConfigurationProject> = new Set();
+        dependencyMap.set(project, filteredDependencies);
 
         for (const dep of project.dependencyProjects) {
           if (projects.has(dep)) {
             // Add direct relationships for projects in the set
-            dependencyTaskNames.add(ProjectBuilder.getTaskName(dep));
+            filteredDependencies.add(dep);
           } else {
             // Add indirect relationships for projects not in the set
-            for (const indirectDep of getDependencyTaskNames(dep)) {
-              dependencyTaskNames.add(indirectDep);
+            for (const indirectDep of getSelectedDependencies(dep)) {
+              filteredDependencies.add(indirectDep);
             }
           }
         }
 
-        return dependencyTaskNames;
+        return filteredDependencies;
       }
 
       // Add ordering relationships for each dependency
-      for (const project of projects) {
-        taskCollection.addDependencies(ProjectBuilder.getTaskName(project), getDependencyTaskNames(project));
+      for (const [project, task] of taskByProject) {
+        const filteredDependencies: Set<RushConfigurationProject> = getSelectedDependencies(project);
+        for (const dependency of filteredDependencies) {
+          const dependencyTask: Task | undefined = taskByProject.get(dependency);
+          if (!dependencyTask) {
+            // This should be unreachable code.
+            throw new Error(
+              `Missing task for project ${dependency.packageName}! This indicates a bug in Rush.`
+            );
+          }
+
+          task.dependencies.add(dependencyTask);
+          // Don't bother with the reverse mapping here. It'll get added by AsyncTaskQueue at execution time.
+        }
       }
     }
 
-    return taskCollection;
-  }
-
-  private _registerTask(project: RushConfigurationProject | undefined, taskCollection: TaskCollection): void {
-    if (!project || taskCollection.hasTask(ProjectBuilder.getTaskName(project))) {
-      return;
-    }
-
-    const commandToRun: string | undefined = TaskSelector.getScriptToRun(
-      project,
-      this._options.commandToRun,
-      this._options.customParameterValues
-    );
-    if (commandToRun === undefined && !this._options.ignoreMissingScript) {
-      throw new Error(
-        `The project [${project.packageName}] does not define a '${this._options.commandToRun}' command in the 'scripts' section of its package.json`
-      );
-    }
-
-    taskCollection.addTask(
-      new ProjectBuilder({
-        rushProject: project,
-        rushConfiguration: this._options.rushConfiguration,
-        buildCacheConfiguration: this._options.buildCacheConfiguration,
-        commandToRun: commandToRun || '',
-        commandName: this._options.commandName,
-        isIncrementalBuildAllowed: this._options.isIncrementalBuildAllowed,
-        projectChangeAnalyzer: this._projectChangeAnalyzer,
-        packageDepsFilename: this._options.packageDepsFilename,
-        allowWarningsInSuccessfulBuild: this._options.allowWarningsInSuccessfulBuild
-      })
-    );
+    return new Set(taskByProject.values());
   }
 
   private static _getScriptCommand(

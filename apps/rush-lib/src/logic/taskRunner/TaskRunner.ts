@@ -14,6 +14,7 @@ import { StreamCollator, CollatedTerminal, CollatedWriter } from '@rushstack/str
 import { AlreadyReportedError, NewlineKind, InternalError, Sort } from '@rushstack/node-core-library';
 
 import { Stopwatch } from '../../utilities/Stopwatch';
+import { AsyncTaskQueue, ITaskSortFunction } from './AsyncTaskQueue';
 import { Task } from './Task';
 import { TaskStatus } from './TaskStatus';
 import { IBuilderContext } from './BaseBuilder';
@@ -40,17 +41,15 @@ export class TaskRunner {
   // Format "======" lines for a shell window with classic 80 columns
   private static readonly _ASCII_HEADER_WIDTH: number = 79;
 
-  private readonly _tasks: Task[];
+  private readonly _tasks: Set<Task>;
   private readonly _changedProjectsOnly: boolean;
   private readonly _allowWarningsInSuccessfulBuild: boolean;
-  private readonly _buildQueue: Task[];
   private readonly _quietMode: boolean;
   private readonly _debugMode: boolean;
   private readonly _parallelism: number;
   private readonly _repoCommandLineConfiguration: CommandLineConfiguration | undefined;
   private _hasAnyFailures: boolean;
   private _hasAnyWarnings: boolean;
-  private _currentActiveTasks!: number;
   private _totalTasks!: number;
   private _completedTasks!: number;
 
@@ -60,7 +59,7 @@ export class TaskRunner {
 
   private _terminal: CollatedTerminal;
 
-  public constructor(orderedTasks: Task[], options: ITaskRunnerOptions) {
+  public constructor(tasks: Set<Task>, options: ITaskRunnerOptions) {
     const {
       quietMode,
       debugMode,
@@ -69,8 +68,7 @@ export class TaskRunner {
       allowWarningsInSuccessfulBuild,
       repoCommandLineConfiguration
     } = options;
-    this._tasks = orderedTasks;
-    this._buildQueue = orderedTasks.slice(0);
+    this._tasks = tasks;
     this._quietMode = quietMode;
     this._debugMode = debugMode;
     this._hasAnyFailures = false;
@@ -164,16 +162,14 @@ export class TaskRunner {
    * tasks are completed successfully, or rejects when any task fails.
    */
   public async executeAsync(): Promise<void> {
-    this._currentActiveTasks = 0;
     this._completedTasks = 0;
-    this._totalTasks = this._tasks.length;
+    const totalTasks: number = (this._totalTasks = this._tasks.size);
 
     if (!this._quietMode) {
-      const plural: string = this._tasks.length === 1 ? '' : 's';
-      this._terminal.writeStdoutLine(`Selected ${this._tasks.length} project${plural}:`);
+      const plural: string = totalTasks === 1 ? '' : 's';
+      this._terminal.writeStdoutLine(`Selected ${totalTasks} project${plural}:`);
       this._terminal.writeStdoutLine(
-        this._tasks
-          .map((x) => `  ${x.name}`)
+        Array.from(this._tasks, (x) => `  ${x.name}`)
           .sort()
           .join('\n')
       );
@@ -182,7 +178,36 @@ export class TaskRunner {
 
     this._terminal.writeStdoutLine(`Executing a maximum of ${this._parallelism} simultaneous processes...`);
 
-    await this._startAvailableTasksAsync();
+    const maxParallelism: number = Math.min(totalTasks, this._parallelism);
+    const taskPrioritySort: ITaskSortFunction = (a: Task, b: Task): number => {
+      let diff: number = a.criticalPathLength! - b.criticalPathLength!;
+      if (diff) {
+        return diff;
+      }
+
+      diff = a.dependents.size - b.dependents.size;
+      if (diff) {
+        return diff;
+      }
+
+      // No further default considerations.
+      return 0;
+    };
+    const taskQueue: AsyncTaskQueue = new AsyncTaskQueue(this._tasks, taskPrioritySort);
+
+    // Iterate in parallel with maxParallelism concurrent lanes
+    await Promise.all(
+      Array.from({ length: maxParallelism }, async (unused: undefined, index: number): Promise<void> => {
+        // laneId can be used in logging to examine concurrency
+        const laneId: number = index + 1;
+        // The taskQueue is a singular async iterable that stalls until a task is available, and marks itself
+        // done when the queue is empty.
+        for await (const task of taskQueue) {
+          // Take a task, execute it, wait for it to finish, wait for a new task
+          await this._executeTaskAsync(task, laneId);
+        }
+      })
+    );
 
     this._printTaskStatus();
 
@@ -195,51 +220,12 @@ export class TaskRunner {
     }
   }
 
-  /**
-   * Pulls the next task with no dependencies off the build queue
-   * Removes any non-ready tasks from the build queue (this should only be blocked tasks)
-   */
-  private _getNextTask(): Task | undefined {
-    for (let i: number = 0; i < this._buildQueue.length; i++) {
-      const task: Task = this._buildQueue[i];
+  private async _executeTaskAsync(task: Task, tid: number): Promise<void> {
+    task.status = TaskStatus.Executing;
+    task.stopwatch = Stopwatch.start();
+    task.collatedWriter = this._streamCollator.registerTask(task.name);
+    task.stdioSummarizer = new StdioSummarizer();
 
-      if (task.status !== TaskStatus.Ready) {
-        // It shouldn't be on the queue, remove it
-        this._buildQueue.splice(i, 1);
-        // Decrement since we modified the array
-        i--;
-      } else if (task.dependencies.size === 0 && task.status === TaskStatus.Ready) {
-        // this is a task which is ready to go. remove it and return it
-        return this._buildQueue.splice(i, 1)[0];
-      }
-      // Otherwise task is still waiting
-    }
-    return undefined; // There are no tasks ready to go at this time
-  }
-
-  /**
-   * Helper function which finds any tasks which are available to run and begins executing them.
-   * It calls the complete callback when all tasks are completed, or rejects if any task fails.
-   */
-  private async _startAvailableTasksAsync(): Promise<void> {
-    const taskPromises: Promise<void>[] = [];
-    let ctask: Task | undefined;
-    while (this._currentActiveTasks < this._parallelism && (ctask = this._getNextTask())) {
-      this._currentActiveTasks++;
-      const task: Task = ctask;
-      task.status = TaskStatus.Executing;
-
-      task.stopwatch = Stopwatch.start();
-      task.collatedWriter = this._streamCollator.registerTask(task.name);
-      task.stdioSummarizer = new StdioSummarizer();
-
-      taskPromises.push(this._executeTaskAndChainAsync(task));
-    }
-
-    await Promise.all(taskPromises);
-  }
-
-  private async _executeTaskAndChainAsync(task: Task): Promise<void> {
     const context: IBuilderContext = {
       repoCommandLineConfiguration: this._repoCommandLineConfiguration,
       stdioSummarizer: task.stdioSummarizer,
@@ -254,7 +240,6 @@ export class TaskRunner {
       task.stopwatch.stop();
       task.stdioSummarizer.close();
 
-      this._currentActiveTasks--;
       switch (result) {
         case TaskStatus.Success:
           this._markTaskAsSuccess(task);
@@ -277,8 +262,6 @@ export class TaskRunner {
     } catch (error) {
       task.stdioSummarizer.close();
 
-      this._currentActiveTasks--;
-
       this._hasAnyFailures = true;
 
       // eslint-disable-next-line require-atomic-updates
@@ -288,8 +271,6 @@ export class TaskRunner {
     }
 
     task.collatedWriter.close();
-
-    await this._startAvailableTasksAsync();
   }
 
   /**

@@ -31,7 +31,7 @@ const mockWritable: MockWritable = new MockWritable();
 function createTaskRunner(taskRunnerOptions: ITaskRunnerOptions, builder: BaseBuilder): TaskRunner {
   const task: Task = new Task(builder, TaskStatus.Ready);
 
-  return new TaskRunner([task], taskRunnerOptions);
+  return new TaskRunner(new Set([task]), taskRunnerOptions);
 }
 
 const EXPECTED_FAIL: string = `Promise returned by ${TaskRunner.prototype.executeAsync.name}() resolved but was expected to fail`;
@@ -61,7 +61,7 @@ describe('TaskRunner', () => {
     it('throwsErrorOnInvalidParallelism', () => {
       expect(
         () =>
-          new TaskRunner([], {
+          new TaskRunner(new Set(), {
             quietMode: false,
             debugMode: false,
             parallelism: 'tequila',
