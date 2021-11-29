@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/rush",
+      "comment": "Reworked the Rush task scheduler to use a custom AsyncTaskQueue that conforms to the ECMAScript async iteration protocol. Indexed tasks by RushConfigurationProject instead of a string during task generation. Modified the TaskSelector to persist across an entire watch command invocation, instead of creating a new instance per build pass.",
+      "type": "none"
+    }
+  ],
+  "packageName": "@microsoft/rush"
+}
