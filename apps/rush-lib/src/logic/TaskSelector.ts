@@ -15,8 +15,6 @@ export interface ITaskSelectorOptions {
   commandName: string;
   commandToRun: string;
   customParameterValues: string[];
-  isQuietMode: boolean;
-  isDebugMode: boolean;
   isIncrementalBuildAllowed: boolean;
   ignoreMissingScript: boolean;
   ignoreDependencyOrder: boolean;

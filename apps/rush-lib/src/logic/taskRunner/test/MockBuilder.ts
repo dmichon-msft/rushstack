@@ -4,17 +4,15 @@
 import { CollatedTerminal } from '@rushstack/stream-collator';
 
 import { TaskStatus } from '../TaskStatus';
-import { BaseBuilder, IBuilderContext } from '../BaseBuilder';
+import { ITaskBuilder, IBuilderContext } from '../ITaskBuilder';
 
-export class MockBuilder extends BaseBuilder {
+export class MockBuilder implements ITaskBuilder {
   private readonly _action: ((terminal: CollatedTerminal) => Promise<TaskStatus>) | undefined;
   public readonly name: string;
   public readonly hadEmptyScript: boolean = false;
   public readonly isSkipAllowed: boolean = false;
 
   public constructor(name: string, action?: (terminal: CollatedTerminal) => Promise<TaskStatus>) {
-    super();
-
     this.name = name;
     this._action = action;
   }

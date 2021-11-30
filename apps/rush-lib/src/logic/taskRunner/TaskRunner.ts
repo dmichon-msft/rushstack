@@ -17,7 +17,7 @@ import { Stopwatch } from '../../utilities/Stopwatch';
 import { AsyncTaskQueue, ITaskSortFunction } from './AsyncTaskQueue';
 import { Task } from './Task';
 import { TaskStatus } from './TaskStatus';
-import { IBuilderContext } from './BaseBuilder';
+import { IBuilderContext } from './ITaskBuilder';
 import { CommandLineConfiguration } from '../../api/CommandLineConfiguration';
 import { TaskError } from './TaskError';
 
@@ -29,6 +29,7 @@ export interface ITaskRunnerOptions {
   allowWarningsInSuccessfulBuild: boolean;
   repoCommandLineConfiguration: CommandLineConfiguration | undefined;
   destination?: TerminalWritable;
+  compareTasks: ITaskSortFunction;
 }
 
 /**
@@ -42,12 +43,14 @@ export class TaskRunner {
   private static readonly _ASCII_HEADER_WIDTH: number = 79;
 
   private readonly _tasks: Set<Task>;
+  private readonly _compareTasks: ITaskSortFunction;
   private readonly _changedProjectsOnly: boolean;
   private readonly _allowWarningsInSuccessfulBuild: boolean;
   private readonly _quietMode: boolean;
   private readonly _debugMode: boolean;
   private readonly _parallelism: number;
   private readonly _repoCommandLineConfiguration: CommandLineConfiguration | undefined;
+
   private _hasAnyFailures: boolean;
   private _hasAnyWarnings: boolean;
   private _totalTasks!: number;
@@ -66,9 +69,11 @@ export class TaskRunner {
       parallelism,
       changedProjectsOnly,
       allowWarningsInSuccessfulBuild,
-      repoCommandLineConfiguration
+      repoCommandLineConfiguration,
+      compareTasks
     } = options;
     this._tasks = tasks;
+    this._compareTasks = compareTasks;
     this._quietMode = quietMode;
     this._debugMode = debugMode;
     this._hasAnyFailures = false;
@@ -179,21 +184,7 @@ export class TaskRunner {
     this._terminal.writeStdoutLine(`Executing a maximum of ${this._parallelism} simultaneous processes...`);
 
     const maxParallelism: number = Math.min(totalTasks, this._parallelism);
-    const taskPrioritySort: ITaskSortFunction = (a: Task, b: Task): number => {
-      let diff: number = a.criticalPathLength! - b.criticalPathLength!;
-      if (diff) {
-        return diff;
-      }
-
-      diff = a.dependents.size - b.dependents.size;
-      if (diff) {
-        return diff;
-      }
-
-      // No further default considerations.
-      return 0;
-    };
-    const taskQueue: AsyncTaskQueue = new AsyncTaskQueue(this._tasks, taskPrioritySort);
+    const taskQueue: AsyncTaskQueue = new AsyncTaskQueue(this._tasks, this._compareTasks);
 
     // Iterate in parallel with maxParallelism concurrent lanes
     await Promise.all(

@@ -30,7 +30,7 @@ import { Utilities, UNINITIALIZED } from '../../utilities/Utilities';
 import { TaskStatus } from './TaskStatus';
 import { TaskError } from './TaskError';
 import { ProjectChangeAnalyzer } from '../ProjectChangeAnalyzer';
-import { BaseBuilder, IBuilderContext } from './BaseBuilder';
+import { ITaskBuilder, IBuilderContext } from './ITaskBuilder';
 import { ProjectLogWritable } from './ProjectLogWritable';
 import { ProjectBuildCache } from '../buildCache/ProjectBuildCache';
 import { BuildCacheConfiguration } from '../../api/BuildCacheConfiguration';
@@ -74,7 +74,7 @@ function _areShallowEqual(object1: JsonObject, object2: JsonObject): boolean {
  * A `BaseBuilder` subclass that builds a Rush project and updates its package-deps-hash
  * incremental state.
  */
-export class ProjectBuilder extends BaseBuilder {
+export class ProjectBuilder implements ITaskBuilder {
   public get name(): string {
     return ProjectBuilder.getTaskName(this._rushProject);
   }
@@ -102,7 +102,6 @@ export class ProjectBuilder extends BaseBuilder {
   private _projectBuildCache: ProjectBuildCache | undefined | UNINITIALIZED = UNINITIALIZED;
 
   public constructor(options: IProjectBuilderOptions) {
-    super();
     this._rushProject = options.rushProject;
     this._rushConfiguration = options.rushConfiguration;
     this._buildCacheConfiguration = options.buildCacheConfiguration;

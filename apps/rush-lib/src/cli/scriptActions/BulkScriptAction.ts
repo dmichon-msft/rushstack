@@ -3,11 +3,12 @@
 
 import * as os from 'os';
 import colors from 'colors/safe';
+import { AsyncSeriesWaterfallHook, SyncBailHook } from 'tapable';
 
 import { AlreadyReportedError, Terminal } from '@rushstack/node-core-library';
 import { CommandLineFlagParameter, CommandLineStringParameter } from '@rushstack/ts-command-line';
 
-import { Event } from '../../index';
+import { Event } from '../../api/EventHooks';
 import { SetupChecks } from '../../logic/SetupChecks';
 import { ICreateTasksOptions, ITaskSelectorOptions, TaskSelector } from '../../logic/TaskSelector';
 import { Stopwatch, StopwatchState } from '../../utilities/Stopwatch';
@@ -22,6 +23,9 @@ import { BuildCacheConfiguration } from '../../api/BuildCacheConfiguration';
 import { Selection } from '../../logic/Selection';
 import { SelectionParameterSet } from '../SelectionParameterSet';
 import { CommandLineConfiguration } from '../../api/CommandLineConfiguration';
+
+import type { Task } from '../../logic/taskRunner/Task';
+import { ITaskSortFunction } from '../../logic/taskRunner/AsyncTaskQueue';
 
 /**
  * Constructor parameters for BulkScriptAction.
@@ -41,8 +45,22 @@ export interface IBulkScriptActionOptions extends IBaseScriptActionOptions {
   commandToRun?: string;
 }
 
+export class BulkScriptActionHooks {
+  /**
+   * The hook that will be invoked when executing a BulkScriptAction to generate the task graph.
+   */
+  public createTasks: AsyncSeriesWaterfallHook<[Set<Task>, ICreateTasksOptions]> =
+    new AsyncSeriesWaterfallHook(['tasks', 'createTasksOptions']);
+
+  /**
+   * The hook to customize task prioritization.
+   * Sorting by descending critical path length is injected at stage 0.
+   * Sorting by descending direct dependency count is injected at stage 100.
+   */
+  public compareTasks: SyncBailHook<[Task, Task], number | undefined> = new SyncBailHook(['a', 'b']);
+}
+
 interface IExecuteInternalOptions {
-  taskSelector: TaskSelector;
   createTasksOptions: ICreateTasksOptions;
   taskRunnerOptions: ITaskRunnerOptions;
   stopwatch: Stopwatch;
@@ -60,6 +78,8 @@ interface IExecuteInternalOptions {
  * execute scripts from package.json in the same as any custom command.
  */
 export class BulkScriptAction extends BaseScriptAction {
+  public readonly hooks: BulkScriptActionHooks;
+
   private readonly _enableParallelism: boolean;
   private readonly _ignoreMissingScript: boolean;
   private readonly _isIncrementalBuildAllowed: boolean;
@@ -78,6 +98,7 @@ export class BulkScriptAction extends BaseScriptAction {
 
   public constructor(options: IBulkScriptActionOptions) {
     super(options);
+    this.hooks = new BulkScriptActionHooks();
     this._enableParallelism = options.enableParallelism;
     this._ignoreMissingScript = options.ignoreMissingScript;
     this._isIncrementalBuildAllowed = options.incremental;
@@ -140,19 +161,58 @@ export class BulkScriptAction extends BaseScriptAction {
       return;
     }
 
-    const taskSelectorOptions: ITaskSelectorOptions = {
+    this.hooks.compareTasks.tap(
+      {
+        name: 'criticalPathLength',
+        stage: 0
+      },
+      (a: Task, b: Task): number | undefined => {
+        const diff: number = a.criticalPathLength! - b.criticalPathLength!;
+        if (diff) {
+          return diff;
+        }
+      }
+    );
+
+    this.hooks.compareTasks.tap(
+      {
+        name: 'dependents',
+        stage: 100
+      },
+      (a: Task, b: Task): number | undefined => {
+        const diff: number = a.dependents.size - b.dependents.size;
+        if (diff) {
+          return diff;
+        }
+      }
+    );
+
+    const taskSelector: TaskSelector = new TaskSelector({
       rushConfiguration: this.rushConfiguration,
       buildCacheConfiguration,
       commandName: this.actionName,
       commandToRun: this._commandToRun,
       customParameterValues,
-      isQuietMode: isQuietMode,
-      isDebugMode: isDebugMode,
       isIncrementalBuildAllowed: this._isIncrementalBuildAllowed,
       ignoreMissingScript: this._ignoreMissingScript,
       ignoreDependencyOrder: this._ignoreDependencyOrder,
       allowWarningsInSuccessfulBuild: this._allowWarningsInSuccessfulBuild,
       packageDepsFilename: Utilities.getPackageDepsFilenameForCommand(this._commandToRun)
+    });
+
+    this.hooks.createTasks.tap(
+      {
+        name: `TaskSelector`,
+        stage: 0
+      },
+      (tasks: Set<Task>, createTasksOptions: ICreateTasksOptions): Set<Task> => {
+        return taskSelector.createTasks(createTasksOptions);
+      }
+    );
+
+    const compareTasks: ITaskSortFunction = (a: Task, b: Task): number => {
+      const diff: number = this.hooks.compareTasks.call(a, b) || 0;
+      return diff;
     };
 
     const taskRunnerOptions: ITaskRunnerOptions = {
@@ -161,13 +221,13 @@ export class BulkScriptAction extends BaseScriptAction {
       parallelism: parallelism,
       changedProjectsOnly: changedProjectsOnly,
       allowWarningsInSuccessfulBuild: this._allowWarningsInSuccessfulBuild,
-      repoCommandLineConfiguration: this._repoCommandLineConfiguration
+      repoCommandLineConfiguration: this._repoCommandLineConfiguration,
+      compareTasks
     };
 
-    const taskSelector: TaskSelector = new TaskSelector(taskSelectorOptions);
+    // TODO: Need to notify plugins that we are executing and provide them an opportunity to tap our hooks
 
     const executeOptions: IExecuteInternalOptions = {
-      taskSelector,
       createTasksOptions: { selection },
       taskRunnerOptions,
       stopwatch,
@@ -190,7 +250,6 @@ export class BulkScriptAction extends BaseScriptAction {
    */
   private async _runWatch(options: IExecuteInternalOptions): Promise<void> {
     const {
-      taskSelector,
       createTasksOptions: { selection: projectsToWatch },
       taskRunnerOptions,
       stopwatch,
@@ -243,7 +302,6 @@ export class BulkScriptAction extends BaseScriptAction {
       }
 
       const executeOptions: IExecuteInternalOptions = {
-        taskSelector,
         createTasksOptions: {
           // Revise down the set of projects to execute the command on
           selection,
@@ -317,14 +375,11 @@ export class BulkScriptAction extends BaseScriptAction {
    * Runs a single invocation of the command
    */
   private async _runOnce(options: IExecuteInternalOptions): Promise<void> {
-    const { taskSelector } = options;
+    const tasks: Set<Task> = await this.hooks.createTasks.promise(new Set(), options.createTasksOptions);
 
     // Register all tasks with the task collection
 
-    const taskRunner: TaskRunner = new TaskRunner(
-      taskSelector.createTasks(options.createTasksOptions),
-      options.taskRunnerOptions
-    );
+    const taskRunner: TaskRunner = new TaskRunner(tasks, options.taskRunnerOptions);
 
     const { ignoreHooks, stopwatch } = options;
 

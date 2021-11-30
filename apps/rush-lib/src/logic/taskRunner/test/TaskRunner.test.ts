@@ -13,7 +13,7 @@ import { TaskRunner, ITaskRunnerOptions } from '../TaskRunner';
 import { TaskStatus } from '../TaskStatus';
 import { Task } from '../Task';
 import { Utilities } from '../../../utilities/Utilities';
-import { BaseBuilder } from '../BaseBuilder';
+import { ITaskBuilder } from '../ITaskBuilder';
 import { MockBuilder } from './MockBuilder';
 
 const mockGetTimeInMs: jest.Mock = jest.fn();
@@ -28,7 +28,7 @@ mockGetTimeInMs.mockImplementation(() => {
 
 const mockWritable: MockWritable = new MockWritable();
 
-function createTaskRunner(taskRunnerOptions: ITaskRunnerOptions, builder: BaseBuilder): TaskRunner {
+function createTaskRunner(taskRunnerOptions: ITaskRunnerOptions, builder: ITaskBuilder): TaskRunner {
   const task: Task = new Task(builder, TaskStatus.Ready);
 
   return new TaskRunner(new Set([task]), taskRunnerOptions);
@@ -68,7 +68,8 @@ describe('TaskRunner', () => {
             changedProjectsOnly: false,
             destination: mockWritable,
             allowWarningsInSuccessfulBuild: false,
-            repoCommandLineConfiguration: undefined
+            repoCommandLineConfiguration: undefined,
+            compareTasks: () => 0
           })
       ).toThrowErrorMatchingSnapshot();
     });
@@ -83,7 +84,8 @@ describe('TaskRunner', () => {
         changedProjectsOnly: false,
         destination: mockWritable,
         allowWarningsInSuccessfulBuild: false,
-        repoCommandLineConfiguration: undefined
+        repoCommandLineConfiguration: undefined,
+        compareTasks: () => 0
       };
     });
 
@@ -141,7 +143,8 @@ describe('TaskRunner', () => {
           changedProjectsOnly: false,
           destination: mockWritable,
           allowWarningsInSuccessfulBuild: false,
-          repoCommandLineConfiguration: undefined
+          repoCommandLineConfiguration: undefined,
+          compareTasks: () => 0
         };
       });
 
@@ -177,7 +180,8 @@ describe('TaskRunner', () => {
           changedProjectsOnly: false,
           destination: mockWritable,
           allowWarningsInSuccessfulBuild: true,
-          repoCommandLineConfiguration: undefined
+          repoCommandLineConfiguration: undefined,
+          compareTasks: () => 0
         };
       });
 

@@ -7,11 +7,11 @@ import { CollatedWriter } from '@rushstack/stream-collator';
 import { Stopwatch } from '../../utilities/Stopwatch';
 import { TaskStatus } from './TaskStatus';
 import { TaskError } from './TaskError';
-import { BaseBuilder } from './BaseBuilder';
+import { ITaskBuilder } from './ITaskBuilder';
 
 /**
  * The `Task` class is a node in the dependency graph of work that needs to be scheduled by the `TaskRunner`.
- * Each `Task` has a `BaseBuilder` member, whose subclass manages the actual operations for building a single
+ * Each `Task` has an `ITaskBuilder` member, whose implementation manages the actual operations for building a single
  * project.
  */
 export class Task {
@@ -19,7 +19,7 @@ export class Task {
    * When the scheduler is ready to process this `Task`, the `builder` implements the actual work of
    * building the project.
    */
-  public builder: BaseBuilder;
+  public builder: ITaskBuilder;
 
   /**
    * The current execution status of a task. Tasks start in the 'ready' state,
@@ -67,7 +67,7 @@ export class Task {
    * Z has a score of 2, since only X depends on it, and X has a score of 1
    * Y has a score of 2, since the chain Y->X->C is longer than Y->C
    *
-   * The algorithm is implemented in TaskRunner as _calculateCriticalPaths()
+   * The algorithm is implemented in AsyncTaskQueue.ts as calculateCriticalPathLength()
    */
   public criticalPathLength: number | undefined;
 
@@ -89,7 +89,7 @@ export class Task {
    */
   public stopwatch!: Stopwatch;
 
-  public constructor(builder: BaseBuilder, initialStatus: TaskStatus) {
+  public constructor(builder: ITaskBuilder, initialStatus: TaskStatus) {
     this.builder = builder;
     this.status = initialStatus;
   }
