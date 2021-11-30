@@ -5,7 +5,14 @@ import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { JsonFile, IPackageJson, FileSystem, FileConstants } from '@rushstack/node-core-library';
+import {
+  JsonFile,
+  IPackageJson,
+  FileSystem,
+  FileConstants,
+  Executable,
+  IExecutableSpawnSyncOptions
+} from '@rushstack/node-core-library';
 import type * as stream from 'stream';
 import { CommandLineHelper } from '@rushstack/ts-command-line';
 
@@ -334,7 +341,7 @@ export class Utilities {
     environment?: IEnvironment,
     keepEnvironment: boolean = false
   ): string {
-    const result: child_process.SpawnSyncReturns<Buffer> = Utilities._executeCommandInternal(
+    const result: child_process.SpawnSyncReturns<string> = Utilities._executeCommandInternal(
       command,
       args,
       workingDirectory,
@@ -759,63 +766,25 @@ export class Utilities {
     command: string,
     args: string[],
     workingDirectory: string,
-    stdio:
-      | 'pipe'
-      | 'ignore'
-      | 'inherit'
-      | (number | 'pipe' | 'ignore' | 'inherit' | 'ipc' | stream.Stream | null | undefined)[]
-      | undefined,
+    stdio: IExecutableSpawnSyncOptions['stdio'],
     environment?: IEnvironment,
     keepEnvironment: boolean = false
-  ): child_process.SpawnSyncReturns<Buffer> {
-    const options: child_process.SpawnSyncOptions = {
-      cwd: workingDirectory,
-      shell: true,
+  ): child_process.SpawnSyncReturns<string> {
+    const options: IExecutableSpawnSyncOptions = {
+      currentWorkingDirectory: workingDirectory,
       stdio: stdio,
-      env: keepEnvironment
+      environment: keepEnvironment
         ? environment
         : Utilities._createEnvironmentForRushCommand({ initialEnvironment: environment })
     };
 
-    // This is needed since we specify shell=true below.
-    // NOTE: On Windows if we escape "NPM", the spawnSync() function runs something like this:
-    //   [ 'C:\\Windows\\system32\\cmd.exe', '/s', '/c', '""NPM" "install""' ]
-    //
-    // Due to a bug with Windows cmd.exe, the npm.cmd batch file's "%~dp0" variable will
-    // return the current working directory instead of the batch file's directory.
-    // The workaround is to not escape, npm, i.e. do this instead:
-    //   [ 'C:\\Windows\\system32\\cmd.exe', '/s', '/c', '"npm "install""' ]
-    //
-    // We will come up with a better solution for this when we promote executeCommand()
-    // into node-core-library, but for now this hack will unblock people:
-
-    // Only escape the command if it actually contains spaces:
-    const escapedCommand: string =
-      command.indexOf(' ') < 0 ? command : Utilities.escapeShellParameter(command);
-
-    const escapedArgs: string[] = args.map((x) => Utilities.escapeShellParameter(x));
-
-    let result: child_process.SpawnSyncReturns<Buffer> = child_process.spawnSync(
-      escapedCommand,
-      escapedArgs,
-      options
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (result.error && (result.error as any).errno === 'ENOENT') {
-      // This is a workaround for GitHub issue #25330
-      // https://github.com/nodejs/node-v0.x-archive/issues/25330
-      //
-      // TODO: The fully worked out solution for this problem is now provided by the "Executable" API
-      // from @rushstack/node-core-library
-      result = child_process.spawnSync(command + '.cmd', args, options);
-    }
+    const result: child_process.SpawnSyncReturns<string> = Executable.spawnSync(command, args, options);
 
     Utilities._processResult(result);
     return result;
   }
 
-  private static _processResult(result: child_process.SpawnSyncReturns<Buffer>): void {
+  private static _processResult(result: child_process.SpawnSyncReturns<string | Buffer>): void {
     if (result.error) {
       result.error.message += os.EOL + (result.stderr ? result.stderr.toString() + os.EOL : '');
       throw result.error;
