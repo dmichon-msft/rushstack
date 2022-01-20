@@ -1,26 +1,26 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import { Task } from '../Task';
-import { TaskStatus } from '../TaskStatus';
-import { MockTaskRunner } from './MockTaskRunner';
-import { AsyncTaskQueue, ITaskSortFunction } from '../AsyncTaskQueue';
+import { Operation } from '../Operation';
+import { OperationStatus } from '../OperationStatus';
+import { MockTaskRunner } from './MockOperationRunner';
+import { AsyncOperationQueue, IOperationSortFunction } from '../AsyncOperationQueue';
 
-function addDependency(dependent: Task, dependency: Task): void {
+function addDependency(dependent: Operation, dependency: Operation): void {
   dependent.dependencies.add(dependency);
 }
 
-function nullSort(a: Task, b: Task): number {
+function nullSort(a: Operation, b: Operation): number {
   return 0;
 }
 
 describe('AsyncTaskQueue', () => {
   it('iterates tasks in topological order', async () => {
     const tasks = [
-      new Task(new MockTaskRunner('a')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('b')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('c')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('d')!, TaskStatus.Ready)
+      new Operation(new MockTaskRunner('a')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('b')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('c')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('d')!, OperationStatus.Ready)
     ];
 
     addDependency(tasks[0], tasks[2]);
@@ -29,7 +29,7 @@ describe('AsyncTaskQueue', () => {
 
     const expectedOrder = [tasks[2], tasks[0], tasks[1], tasks[3]];
     const actualOrder = [];
-    const queue: AsyncTaskQueue = new AsyncTaskQueue(tasks, nullSort);
+    const queue: AsyncOperationQueue = new AsyncOperationQueue(tasks, nullSort);
     for await (const task of queue) {
       actualOrder.push(task);
       for (const dependent of task.dependents) {
@@ -42,19 +42,19 @@ describe('AsyncTaskQueue', () => {
 
   it('respects the sort predicate', async () => {
     const tasks = [
-      new Task(new MockTaskRunner('a')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('b')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('c')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('d')!, TaskStatus.Ready)
+      new Operation(new MockTaskRunner('a')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('b')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('c')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('d')!, OperationStatus.Ready)
     ];
 
     const expectedOrder = [tasks[2], tasks[0], tasks[1], tasks[3]];
     const actualOrder = [];
-    const customSort: ITaskSortFunction = (a: Task, b: Task): number => {
+    const customSort: IOperationSortFunction = (a: Operation, b: Operation): number => {
       return expectedOrder.indexOf(b) - expectedOrder.indexOf(a);
     };
 
-    const queue: AsyncTaskQueue = new AsyncTaskQueue(tasks, customSort);
+    const queue: AsyncOperationQueue = new AsyncOperationQueue(tasks, customSort);
     for await (const task of queue) {
       actualOrder.push(task);
       for (const dependent of task.dependents) {
@@ -67,10 +67,10 @@ describe('AsyncTaskQueue', () => {
 
   it('detects cyles', async () => {
     const tasks = [
-      new Task(new MockTaskRunner('a')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('b')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('c')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('d')!, TaskStatus.Ready)
+      new Operation(new MockTaskRunner('a')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('b')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('c')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('d')!, OperationStatus.Ready)
     ];
 
     addDependency(tasks[0], tasks[2]);
@@ -79,17 +79,17 @@ describe('AsyncTaskQueue', () => {
     addDependency(tasks[1], tasks[0]);
 
     expect(() => {
-      new AsyncTaskQueue(tasks, nullSort);
+      new AsyncOperationQueue(tasks, nullSort);
     }).toThrowErrorMatchingSnapshot();
   });
 
   it('handles concurrent iteration', async () => {
     const tasks = [
-      new Task(new MockTaskRunner('a')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('b')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('c')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('d')!, TaskStatus.Ready),
-      new Task(new MockTaskRunner('e')!, TaskStatus.Ready)
+      new Operation(new MockTaskRunner('a')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('b')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('c')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('d')!, OperationStatus.Ready),
+      new Operation(new MockTaskRunner('e')!, OperationStatus.Ready)
     ];
 
     // Set up to allow (0,1) -> (2) -> (3,4)
@@ -106,8 +106,8 @@ describe('AsyncTaskQueue', () => {
       [tasks[4], 2]
     ]);
 
-    const actualConcurrency: Map<Task, number> = new Map();
-    const queue: AsyncTaskQueue = new AsyncTaskQueue(tasks, nullSort);
+    const actualConcurrency: Map<Operation, number> = new Map();
+    const queue: AsyncOperationQueue = new AsyncOperationQueue(tasks, nullSort);
     let concurrency: number = 0;
 
     // Use 3 concurrent iterators to verify that it handles having more than the task concurrency

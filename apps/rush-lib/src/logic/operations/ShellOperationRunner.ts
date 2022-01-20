@@ -27,10 +27,10 @@ import { CollatedTerminal } from '@rushstack/stream-collator';
 import type { RushConfiguration } from '../../api/RushConfiguration';
 import type { RushConfigurationProject } from '../../api/RushConfigurationProject';
 import { Utilities, UNINITIALIZED } from '../../utilities/Utilities';
-import { TaskStatus } from './TaskStatus';
-import { TaskError } from './TaskError';
+import { OperationStatus } from './OperationStatus';
+import { OperationError } from './OperationError';
 import type { ProjectChangeAnalyzer } from '../ProjectChangeAnalyzer';
-import { ITaskRunner, ITaskRunnerContext } from './ITaskRunner';
+import { IOperationRunner, IOperationRunnerContext } from './IOperationRunner';
 import { ProjectLogWritable } from './ProjectLogWritable';
 import { ProjectBuildCache } from '../buildCache/ProjectBuildCache';
 import type { BuildCacheConfiguration } from '../../api/BuildCacheConfiguration';
@@ -45,14 +45,14 @@ export interface IProjectDeps {
   arguments: string;
 }
 
-export interface IProjectTaskRunnerOptions {
+export interface IShellOperationRunnerOptions {
   rushProject: RushConfigurationProject;
   rushConfiguration: RushConfiguration;
   buildCacheConfiguration: BuildCacheConfiguration | undefined;
   commandToRun: string;
   isIncrementalBuildAllowed: boolean;
   projectChangeAnalyzer: ProjectChangeAnalyzer;
-  taskName: string;
+  logName: string;
   phase: IPhase;
 }
 
@@ -71,10 +71,10 @@ function _areShallowEqual(object1: JsonObject, object2: JsonObject): boolean {
 }
 
 /**
- * A `BaseTaskRunner` subclass that executes a task for a Rush project and updates its package-deps-hash
- * incremental state.
+ * An `IOperationRunner` implementation that invokes a shell command and updates package-deps-hash
+ * incremental state for an Operation.
  */
-export class ProjectTaskRunner implements ITaskRunner {
+export class ShellOperationRunner implements IOperationRunner {
   public readonly name: string;
 
   public readonly isSkipAllowed: boolean;
@@ -99,10 +99,10 @@ export class ProjectTaskRunner implements ITaskRunner {
    */
   private _projectBuildCache: ProjectBuildCache | undefined | UNINITIALIZED = UNINITIALIZED;
 
-  public constructor(options: IProjectTaskRunnerOptions) {
+  public constructor(options: IShellOperationRunnerOptions) {
     const { phase } = options;
 
-    this.name = options.taskName;
+    this.name = options.logName;
     this._rushProject = options.rushProject;
     this._phase = phase;
     this._rushConfiguration = options.rushConfiguration;
@@ -118,18 +118,18 @@ export class ProjectTaskRunner implements ITaskRunner {
     this._logFilenameIdentifier = phase.logFilenameIdentifier;
   }
 
-  public async executeAsync(context: ITaskRunnerContext): Promise<TaskStatus> {
+  public async executeAsync(context: IOperationRunnerContext): Promise<OperationStatus> {
     try {
       if (!this._commandToRun) {
         this.hadEmptyScript = true;
       }
-      return await this._executeTaskAsync(context);
+      return await this._executeAsync(context);
     } catch (error) {
-      throw new TaskError('executing', (error as Error).message);
+      throw new OperationError('executing', (error as Error).message);
     }
   }
 
-  private async _executeTaskAsync(context: ITaskRunnerContext): Promise<TaskStatus> {
+  private async _executeAsync(context: IOperationRunnerContext): Promise<OperationStatus> {
     // TERMINAL PIPELINE:
     //
     //                             +--> quietModeTransform? --> collatedWriter
@@ -239,7 +239,7 @@ export class ProjectTaskRunner implements ITaskRunner {
         });
       }
 
-      // If possible, we want to skip this task -- either by restoring it from the
+      // If possible, we want to skip this Operation -- either by restoring it from the
       // cache, if caching is enabled, or determining that the project
       // is unchanged (using the older incremental execution logic). These two approaches,
       // "caching" and "skipping", are incompatible, so only one applies.
@@ -268,7 +268,7 @@ export class ProjectTaskRunner implements ITaskRunner {
           await projectBuildCache?.tryRestoreFromCacheAsync(terminal);
 
         if (restoreFromCacheSuccess) {
-          return TaskStatus.FromCache;
+          return OperationStatus.FromCache;
         }
       }
       if (this.isSkipAllowed && !buildCacheReadAttempted) {
@@ -280,7 +280,7 @@ export class ProjectTaskRunner implements ITaskRunner {
         );
 
         if (isPackageUnchanged) {
-          return TaskStatus.Skipped;
+          return OperationStatus.Skipped;
         }
       }
 
@@ -300,63 +300,66 @@ export class ProjectTaskRunner implements ITaskRunner {
           });
         }
 
-        return TaskStatus.Success;
+        return OperationStatus.Success;
       }
 
-      // Run the task
+      // Run the Operation
       terminal.writeLine('Invoking: ' + this._commandToRun);
 
-      const task: child_process.ChildProcess = Utilities.executeLifecycleCommandAsync(this._commandToRun, {
-        rushConfiguration: this._rushConfiguration,
-        workingDirectory: projectFolder,
-        initCwd: this._rushConfiguration.commonTempFolder,
-        handleOutput: true,
-        environmentPathOptions: {
-          includeProjectBin: true
+      const scriptProcess: child_process.ChildProcess = Utilities.executeLifecycleCommandAsync(
+        this._commandToRun,
+        {
+          rushConfiguration: this._rushConfiguration,
+          workingDirectory: projectFolder,
+          initCwd: this._rushConfiguration.commonTempFolder,
+          handleOutput: true,
+          environmentPathOptions: {
+            includeProjectBin: true
+          }
         }
-      });
+      );
 
       // Hook into events, in order to get live streaming of the log
-      if (task.stdout !== null) {
-        task.stdout.on('data', (data: Buffer) => {
+      if (scriptProcess.stdout !== null) {
+        scriptProcess.stdout.on('data', (data: Buffer) => {
           const text: string = data.toString();
           collatedTerminal.writeChunk({ text, kind: TerminalChunkKind.Stdout });
         });
       }
-      if (task.stderr !== null) {
-        task.stderr.on('data', (data: Buffer) => {
+      if (scriptProcess.stderr !== null) {
+        scriptProcess.stderr.on('data', (data: Buffer) => {
           const text: string = data.toString();
           collatedTerminal.writeChunk({ text, kind: TerminalChunkKind.Stderr });
           hasWarningOrError = true;
         });
       }
 
-      let status: TaskStatus = await new Promise(
-        (resolve: (status: TaskStatus) => void, reject: (error: TaskError) => void) => {
-          task.on('close', (code: number) => {
+      let status: OperationStatus = await new Promise(
+        (resolve: (status: OperationStatus) => void, reject: (error: OperationError) => void) => {
+          scriptProcess.on('close', (code: number) => {
             try {
               if (code !== 0) {
-                reject(new TaskError('error', `Returned error code: ${code}`));
+                reject(new OperationError('error', `Returned error code: ${code}`));
               } else if (hasWarningOrError) {
-                resolve(TaskStatus.SuccessWithWarning);
+                resolve(OperationStatus.SuccessWithWarning);
               } else {
-                resolve(TaskStatus.Success);
+                resolve(OperationStatus.Success);
               }
             } catch (error) {
-              reject(error as TaskError);
+              reject(error as OperationError);
             }
           });
         }
       );
 
-      const taskIsSuccessful: boolean =
-        status === TaskStatus.Success ||
-        (status === TaskStatus.SuccessWithWarning &&
+      const succeeded: boolean =
+        status === OperationStatus.Success ||
+        (status === OperationStatus.SuccessWithWarning &&
           this.warningsAreAllowed &&
           !!this._rushConfiguration.experimentsConfiguration.configuration
             .buildCacheWithAllowWarningsInSuccessfulBuild);
 
-      if (taskIsSuccessful && projectDeps) {
+      if (succeeded && projectDeps) {
         // Write deps on success.
         const writeProjectStatePromise: Promise<boolean> = JsonFile.saveAsync(projectDeps, currentDepsPath, {
           ensureFolderExists: true
@@ -377,9 +380,9 @@ export class ProjectTaskRunner implements ITaskRunner {
         const [, cacheWriteSuccess] = await Promise.all([writeProjectStatePromise, setCacheEntryPromise]);
 
         if (terminalProvider.hasErrors) {
-          status = TaskStatus.Failure;
+          status = OperationStatus.Failure;
         } else if (cacheWriteSuccess === false) {
-          status = TaskStatus.SuccessWithWarning;
+          status = OperationStatus.SuccessWithWarning;
         }
       }
 

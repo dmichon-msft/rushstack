@@ -9,12 +9,12 @@ import { EOL } from 'os';
 import type { CollatedTerminal } from '@rushstack/stream-collator';
 import { MockWritable } from '@rushstack/terminal';
 
-import { TaskExecutionManager, ITaskExecutionManagerOptions } from '../TaskExecutionManager';
-import { TaskStatus } from '../TaskStatus';
-import { Task } from '../Task';
+import { OperationExecutionManager, ITaskExecutionManagerOptions } from '../OperationExecutionManager';
+import { OperationStatus } from '../OperationStatus';
+import { Operation } from '../Operation';
 import { Utilities } from '../../../utilities/Utilities';
-import type { ITaskRunner } from '../ITaskRunner';
-import { MockTaskRunner } from './MockTaskRunner';
+import type { IOperationRunner } from '../IOperationRunner';
+import { MockTaskRunner } from './MockOperationRunner';
 
 const mockGetTimeInMs: jest.Mock = jest.fn();
 Utilities.getTimeInMs = mockGetTimeInMs;
@@ -30,17 +30,17 @@ const mockWritable: MockWritable = new MockWritable();
 
 function createTaskExecutionManager(
   taskExecutionManagerOptions: ITaskExecutionManagerOptions,
-  taskRunner: ITaskRunner
-): TaskExecutionManager {
-  const task: Task = new Task(taskRunner, TaskStatus.Ready);
+  taskRunner: IOperationRunner
+): OperationExecutionManager {
+  const task: Operation = new Operation(taskRunner, OperationStatus.Ready);
 
-  return new TaskExecutionManager(new Set([task]), taskExecutionManagerOptions);
+  return new OperationExecutionManager(new Set([task]), taskExecutionManagerOptions);
 }
 
-const EXPECTED_FAIL: string = `Promise returned by ${TaskExecutionManager.prototype.executeAsync.name}() resolved but was expected to fail`;
+const EXPECTED_FAIL: string = `Promise returned by ${OperationExecutionManager.prototype.executeAsync.name}() resolved but was expected to fail`;
 
-describe(TaskExecutionManager.name, () => {
-  let taskExecutionManager: TaskExecutionManager;
+describe(OperationExecutionManager.name, () => {
+  let taskExecutionManager: OperationExecutionManager;
   let taskExecutionManagerOptions: ITaskExecutionManagerOptions;
 
   let initialColorsEnabled: boolean;
@@ -64,7 +64,7 @@ describe(TaskExecutionManager.name, () => {
     it('throwsErrorOnInvalidParallelism', () => {
       expect(
         () =>
-          new TaskExecutionManager(new Set(), {
+          new OperationExecutionManager(new Set(), {
             quietMode: false,
             debugMode: false,
             parallelism: 'tequila',
@@ -94,7 +94,7 @@ describe(TaskExecutionManager.name, () => {
         new MockTaskRunner('stdout+stderr', async (terminal: CollatedTerminal) => {
           terminal.writeStdoutLine('Build step 1' + EOL);
           terminal.writeStderrLine('Error: step 1 failed' + EOL);
-          return TaskStatus.Failure;
+          return OperationStatus.Failure;
         })
       );
 
@@ -115,7 +115,7 @@ describe(TaskExecutionManager.name, () => {
         new MockTaskRunner('stdout only', async (terminal: CollatedTerminal) => {
           terminal.writeStdoutLine('Build step 1' + EOL);
           terminal.writeStdoutLine('Error: step 1 failed' + EOL);
-          return TaskStatus.Failure;
+          return OperationStatus.Failure;
         })
       );
 
@@ -151,7 +151,7 @@ describe(TaskExecutionManager.name, () => {
           new MockTaskRunner('success with warnings (failure)', async (terminal: CollatedTerminal) => {
             terminal.writeStdoutLine('Build step 1' + EOL);
             terminal.writeStdoutLine('Warning: step 1 succeeded with warnings' + EOL);
-            return TaskStatus.SuccessWithWarning;
+            return OperationStatus.SuccessWithWarning;
           })
         );
 
@@ -188,7 +188,7 @@ describe(TaskExecutionManager.name, () => {
             async (terminal: CollatedTerminal) => {
               terminal.writeStdoutLine('Build step 1' + EOL);
               terminal.writeStdoutLine('Warning: step 1 succeeded with warnings' + EOL);
-              return TaskStatus.SuccessWithWarning;
+              return OperationStatus.SuccessWithWarning;
             },
             /* warningsAreAllowed */ true
           )

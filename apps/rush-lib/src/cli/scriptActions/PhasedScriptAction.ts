@@ -12,8 +12,8 @@ import { Stopwatch, StopwatchState } from '../../utilities/Stopwatch';
 import { BaseScriptAction, IBaseScriptActionOptions } from './BaseScriptAction';
 import {
   ITaskExecutionManagerOptions,
-  TaskExecutionManager
-} from '../../logic/taskExecution/TaskExecutionManager';
+  OperationExecutionManager
+} from '../../logic/operations/OperationExecutionManager';
 import { RushConstants } from '../../logic/RushConstants';
 import { EnvironmentVariableNames } from '../../api/EnvironmentConfiguration';
 import { LastLinkFlag, LastLinkFlagFactory } from '../../api/LastLinkFlag';
@@ -21,10 +21,10 @@ import { RushConfigurationProject } from '../../api/RushConfigurationProject';
 import { BuildCacheConfiguration } from '../../api/BuildCacheConfiguration';
 import { SelectionParameterSet } from '../SelectionParameterSet';
 import type { CommandLineConfiguration, IPhase, IPhasedCommand } from '../../api/CommandLineConfiguration';
-import type { IProjectTaskSelectorOptions } from '../../logic/ProjectTaskSelector';
-import { ProjectTaskSelector } from '../../logic/ProjectTaskSelector';
+import type { IOperationSelectorOptions } from '../../logic/operations/OperationSelector';
+import { OperationSelector } from '../../logic/operations/OperationSelector';
 import { Selection } from '../../logic/Selection';
-import { IProjectTaskFactoryOptions, ProjectTaskFactory } from '../../logic/taskExecution/ProjectTaskFactory';
+import { IOperationFactoryOptions, ProjectTaskFactory } from '../../logic/operations/OperationRunnerFactory';
 import { Event } from '../../api/EventHooks';
 import { ProjectChangeAnalyzer } from '../../logic/ProjectChangeAnalyzer';
 
@@ -42,10 +42,10 @@ export interface IPhasedScriptActionOptions extends IBaseScriptActionOptions<IPh
 }
 
 interface IExecuteInternalOptions {
-  taskSelector: ProjectTaskSelector;
+  taskSelector: OperationSelector;
   taskExecutionManagerOptions: ITaskExecutionManagerOptions;
   projectSelection: Set<RushConfigurationProject>;
-  taskFactoryOptions: IProjectTaskFactoryOptions;
+  taskFactoryOptions: IOperationFactoryOptions;
   stopwatch: Stopwatch;
   ignoreHooks?: boolean;
   terminal: Terminal;
@@ -131,7 +131,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
     }
 
     const phasesToRun: Set<IPhase> = new Set(this._actionPhases);
-    const taskFactoryOptions: IProjectTaskFactoryOptions = {
+    const taskFactoryOptions: IOperationFactoryOptions = {
       rushConfiguration: this.rushConfiguration,
       buildCacheConfiguration,
       isIncrementalBuildAllowed: this._isIncrementalBuildAllowed,
@@ -139,7 +139,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
       projectChangeAnalyzer: new ProjectChangeAnalyzer(this.rushConfiguration)
     };
 
-    const taskSelectorOptions: IProjectTaskSelectorOptions = {
+    const taskSelectorOptions: IOperationSelectorOptions = {
       phasesToRun: phasesToRun
     };
 
@@ -151,7 +151,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
       repoCommandLineConfiguration: this._repoCommandLineConfiguration
     };
 
-    const taskSelector: ProjectTaskSelector = new ProjectTaskSelector(taskSelectorOptions);
+    const taskSelector: OperationSelector = new OperationSelector(taskSelectorOptions);
 
     const executeOptions: IExecuteInternalOptions = {
       taskSelector,
@@ -315,10 +315,10 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
 
     const taskFactory: ProjectTaskFactory = new ProjectTaskFactory(taskFactoryOptions);
 
-    const taskExecutionManager: TaskExecutionManager = new TaskExecutionManager(
+    const taskExecutionManager: OperationExecutionManager = new OperationExecutionManager(
       taskSelector.createTasks({
         projectSelection,
-        taskFactory
+        operationFactory: taskFactory
       }),
       options.taskExecutionManagerOptions
     );
