@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/rush",
+      "comment": "Use the `--dereference` argument to tar during creation for safer symlink handling.",
+      "type": "none"
+    }
+  ],
+  "packageName": "@microsoft/rush"
+}

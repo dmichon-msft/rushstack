@@ -89,8 +89,10 @@ export class TarExecutable {
         archivePath,
         // [Windows bsdtar 3.3.2] -z, -j, -J, --lzma  Compress archive with gzip/bzip2/xz/lzma
         '-z',
+        // [Windows bsdtar 3.3.2] Dereference symbolic links and store the underlying content
+        '--dereference',
         // [GNU tar 1.33] -T, --files-from=FILE      get names to extract or create from FILE
-        //
+        // Pass "-" to read from stdin
         // Windows bsdtar does not document this parameter, but seems to accept it.
         '--files-from=-'
       ],
@@ -140,6 +142,8 @@ export class TarExecutable {
         `Start time: ${new Date().toString()}`,
         `Invoking "${this._tarExecutablePath} ${args.join(' ')}"`,
         '',
+        `======= BEGIN PROCESS INPUT ======`,
+        input || '',
         '======= BEGIN PROCESS OUTPUT =======',
         ''
       ].join('\n')
@@ -149,18 +153,23 @@ export class TarExecutable {
       currentWorkingDirectory: currentWorkingDirectory
     });
 
-    childProcess.stdout?.on('data', (chunk) => fileWriter.write(`[stdout] ${chunk}`));
-    childProcess.stderr?.on('data', (chunk) => fileWriter.write(`[stderr] ${chunk}`));
+    childProcess.stdout!.on('data', (chunk) => fileWriter.write(`[stdout] ${chunk}`));
+    childProcess.stderr!.on('data', (chunk) => fileWriter.write(`[stderr] ${chunk}`));
 
     if (input !== undefined) {
-      childProcess.stdin.write(input, 'utf-8');
-      childProcess.stdin.end();
+      childProcess.stdin!.write(input, 'utf-8');
+      childProcess.stdin!.end();
     }
 
     const [tarExitCode] = await events.once(childProcess, 'exit');
 
     fileWriter.write(
-      ['======== END PROCESS OUTPUT ========', '', `Exited with code "${tarExitCode}"`].join('\n')
+      [
+        '======== END PROCESS OUTPUT ========',
+        '',
+        `Exited with code "${tarExitCode}"`,
+        `End time: ${new Date().toString()}`
+      ].join('\n')
     );
     fileWriter.close();
 
