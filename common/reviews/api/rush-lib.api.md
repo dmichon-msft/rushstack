@@ -7,11 +7,15 @@
 /// <reference types="node" />
 
 import { AsyncSeriesHook } from 'tapable';
+import { AsyncSeriesWaterfallHook } from 'tapable';
+import { CollatedWriter } from '@rushstack/stream-collator';
+import { HookMap } from 'tapable';
 import { IPackageJson } from '@rushstack/node-core-library';
 import { ITerminal } from '@rushstack/node-core-library';
 import { ITerminalProvider } from '@rushstack/node-core-library';
 import { JsonObject } from '@rushstack/node-core-library';
 import { PackageNameParser } from '@rushstack/node-core-library';
+import { StdioSummarizer } from '@rushstack/terminal';
 import { Terminal } from '@rushstack/node-core-library';
 
 // @public
@@ -679,7 +683,14 @@ export class _RushGlobalFolder {
 
 // @beta (undocumented)
 export class RushLifecycleHooks {
-    initialize: AsyncSeriesHook<void>;
+    // Warning: (ae-forgotten-export) The symbol "IGlobalScriptAction" needs to be exported by the entry point index.d.ts
+    anyGlobalScriptCommand: AsyncSeriesHook<IGlobalScriptAction>;
+    // Warning: (ae-forgotten-export) The symbol "IPhasedScriptAction" needs to be exported by the entry point index.d.ts
+    anyPhasedScriptComamnd: AsyncSeriesHook<IPhasedScriptAction>;
+    globalScriptCommand: HookMap<AsyncSeriesHook<IGlobalScriptAction>>;
+    // Warning: (ae-forgotten-export) The symbol "IRushAction" needs to be exported by the entry point index.d.ts
+    initialize: AsyncSeriesHook<IRushAction>;
+    phasedScriptCommand: HookMap<AsyncSeriesHook<IPhasedScriptAction>>;
 }
 
 // @beta (undocumented)
