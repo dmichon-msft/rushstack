@@ -419,7 +419,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> impleme
       stopwatch.stop();
 
       if (error instanceof AlreadyReportedError) {
-        terminal.writeErrorLine(`rush ${this.actionName} (${stopwatch.toString()})`);
+        terminal.writeLine(`rush ${this.actionName} (${stopwatch.toString()})`);
       } else {
         if (error && (error as Error).message) {
           if (this.parser.isDebug) {
