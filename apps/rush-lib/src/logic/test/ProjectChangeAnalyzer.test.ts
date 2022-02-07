@@ -9,7 +9,6 @@ import { EnvironmentConfiguration } from '../../api/EnvironmentConfiguration';
 import { RushConfigurationProject } from '../../api/RushConfigurationProject';
 import { RushProjectConfiguration } from '../../api/RushProjectConfiguration';
 import { LookupByPath } from '../LookupByPath';
-import { UNINITIALIZED } from '../../utilities/Utilities';
 
 describe(ProjectChangeAnalyzer.name, () => {
   beforeEach(() => {
@@ -246,12 +245,11 @@ describe(ProjectChangeAnalyzer.name, () => {
       // ProjectChangeAnalyzer is inert until someone actually requests project data,
       // this test makes that expectation explicit.
 
-      expect(subject['_data']).toEqual(UNINITIALIZED);
+      expect(subject['_data']).toEqual(undefined);
       expect(await subject._tryGetProjectDependenciesAsync(projects[0], terminal)).toEqual(
         new Map([['apps/apple/core.js', 'a101']])
       );
       expect(subject['_data']).toBeDefined();
-      expect(subject['_data']).not.toEqual(UNINITIALIZED);
       expect(await subject._tryGetProjectDependenciesAsync(projects[0], terminal)).toEqual(
         new Map([['apps/apple/core.js', 'a101']])
       );

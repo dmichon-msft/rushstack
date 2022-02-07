@@ -22,7 +22,7 @@ import { RushConfigurationProject } from '../api/RushConfigurationProject';
 import { RushConstants } from './RushConstants';
 import { LookupByPath } from './LookupByPath';
 import { PnpmShrinkwrapFile } from './pnpm/PnpmShrinkwrapFile';
-import { UNINITIALIZED } from '../utilities/Utilities';
+import { Selection } from './Selection';
 
 /**
  * @beta
@@ -61,12 +61,14 @@ interface IRawRepoState {
  */
 export class ProjectChangeAnalyzer {
   /**
-   * UNINITIALIZED === we haven't looked
-   * undefined === data isn't available (i.e. - git isn't present)
+   * undefined === hasn't loaded
+   * { projectState: undefined } === unavailable (i.e. - git isn't present)
    */
-  private _data: IRawRepoState | UNINITIALIZED | undefined = UNINITIALIZED;
+  private _data: IRawRepoState | undefined;
   private readonly _filteredData: Map<RushConfigurationProject, Map<string, string>> = new Map();
-  private readonly _projectStateCache: Map<RushConfigurationProject, string> = new Map();
+  private readonly _projectStateCache: Map<RushConfigurationProject, string | Promise<string>> = new Map();
+  private readonly _fullProjectStateCache: Map<RushConfigurationProject, string | Promise<string>> =
+    new Map();
   private readonly _rushConfiguration: RushConfiguration;
   private readonly _git: Git;
 
@@ -93,12 +95,8 @@ export class ProjectChangeAnalyzer {
       return filteredProjectData;
     }
 
-    if (this._data === UNINITIALIZED) {
-      this._data = this._getData(terminal);
-    }
-
     if (!this._data) {
-      return undefined;
+      this._data = this._getData(terminal);
     }
 
     const { projectState, rootDir } = this._data;
@@ -125,8 +123,8 @@ export class ProjectChangeAnalyzer {
 
   /**
    * The project state hash is calculated in the following way:
-   * - Project dependencies are collected (see ProjectChangeAnalyzer.getPackageDeps)
-   *   - If project dependencies cannot be collected (i.e. - if Git isn't available),
+   * - Project local dependencies are collected (see ProjectChangeAnalyzer.getPackageDeps)
+   *   - If project local dependencies cannot be collected (i.e. - if Git isn't available),
    *     this function returns `undefined`
    * - The (path separator normalized) repo-root-relative dependencies' file paths are sorted
    * - A SHA1 hash is created and each (sorted) file path is fed into the hash and then its
@@ -139,31 +137,35 @@ export class ProjectChangeAnalyzer {
     project: RushConfigurationProject,
     terminal: ITerminal
   ): Promise<string | undefined> {
-    let projectState: string | undefined = this._projectStateCache.get(project);
-    if (!projectState) {
-      const packageDeps: Map<string, string> | undefined = await this._tryGetProjectDependenciesAsync(
-        project,
-        terminal
-      );
-
-      if (!packageDeps) {
-        return undefined;
-      } else {
-        const sortedPackageDepsFiles: string[] = Array.from(packageDeps.keys()).sort();
-        const hash: crypto.Hash = crypto.createHash('sha1');
-        for (const packageDepsFile of sortedPackageDepsFiles) {
-          hash.update(packageDepsFile);
-          hash.update(RushConstants.hashDelimiter);
-          hash.update(packageDeps.get(packageDepsFile)!);
-          hash.update(RushConstants.hashDelimiter);
-        }
-
-        projectState = hash.digest('hex');
-        this._projectStateCache.set(project, projectState);
-      }
+    let projectState: Promise<string> | string | undefined = this._projectStateCache.get(project);
+    if (projectState === undefined) {
+      projectState = this._tryGetProjectStateHashAsyncNoCache(project, terminal);
+      this._projectStateCache.set(project, projectState);
     }
 
-    return projectState;
+    return (await projectState) || undefined;
+  }
+
+  /**
+   * The full project state hash is calculated in the following way:
+   * - The project state hash of this project and all its dependencies are computed
+   * - The hashes are sorted lexicographically
+   * - A SHA1 hash is created and each (sorted) project hash is fed into the hash
+   * - A hex digest of the hash is returned
+   *
+   * @internal
+   */
+  public async _tryGetFullProjectStateHashAsync(
+    project: RushConfigurationProject,
+    terminal: ITerminal
+  ): Promise<string | undefined> {
+    let fullStateHash: Promise<string> | string | undefined = this._fullProjectStateCache.get(project);
+    if (fullStateHash === undefined) {
+      fullStateHash = this._tryGetFullProjectStateHashAsyncNoCache(project, terminal);
+      this._fullProjectStateCache.set(project, fullStateHash);
+    }
+
+    return (await fullStateHash) || undefined;
   }
 
   public async _filterProjectDataAsync<T>(
@@ -409,6 +411,68 @@ export class ProjectChangeAnalyzer {
       projectState: projectHashDeps,
       rootDir
     };
+  }
+
+  private async _tryGetFullProjectStateHashAsyncNoCache(
+    project: RushConfigurationProject,
+    terminal: ITerminal
+  ): Promise<string> {
+    const projectStates: string[] = [];
+
+    const projectsToHash: Set<RushConfigurationProject> = Selection.expandAllDependencies([project]);
+
+    for (const projectToProcess of projectsToHash) {
+      const projectState: string | undefined = await this._tryGetProjectStateHashAsync(
+        projectToProcess,
+        terminal
+      );
+
+      if (!projectState) {
+        // If we hit any projects with unknown state, return unknown cache ID
+        this._fullProjectStateCache.set(project, '');
+        return '';
+      } else {
+        projectStates.push(projectState);
+      }
+    }
+
+    const sortedProjectStates: string[] = projectStates.sort();
+    const hash: crypto.Hash = crypto.createHash('sha1');
+    for (const projectHash of sortedProjectStates) {
+      hash.update(projectHash);
+      hash.update(RushConstants.hashDelimiter);
+    }
+    const fullStateHash: string = hash.digest('hex');
+    this._fullProjectStateCache.set(project, fullStateHash);
+
+    return fullStateHash;
+  }
+
+  private async _tryGetProjectStateHashAsyncNoCache(
+    project: RushConfigurationProject,
+    terminal: ITerminal
+  ): Promise<string> {
+    const packageDeps: Map<string, string> | undefined = await this._tryGetProjectDependenciesAsync(
+      project,
+      terminal
+    );
+
+    let projectState: string = '';
+    if (packageDeps) {
+      const sortedPackageDepsFiles: string[] = Array.from(packageDeps.keys()).sort();
+      const hash: crypto.Hash = crypto.createHash('sha1');
+      for (const packageDepsFile of sortedPackageDepsFiles) {
+        hash.update(packageDepsFile);
+        hash.update(RushConstants.hashDelimiter);
+        hash.update(packageDeps.get(packageDepsFile)!);
+        hash.update(RushConstants.hashDelimiter);
+      }
+
+      projectState = hash.digest('hex');
+    }
+
+    this._projectStateCache.set(project, projectState);
+    return projectState;
   }
 
   private async _getIgnoreMatcherForProjectAsync(

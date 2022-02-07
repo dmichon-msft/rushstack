@@ -22,6 +22,9 @@ describe('ProjectBuildCache', () => {
     const projectChangeAnalyzer = {
       [ProjectChangeAnalyzer.prototype._tryGetProjectStateHashAsync.name]: async () => {
         return 'state_hash';
+      },
+      [ProjectChangeAnalyzer.prototype._tryGetFullProjectStateHashAsync.name]: async () => {
+        return 'full_state_hash';
       }
     } as unknown as ProjectChangeAnalyzer;
 
@@ -57,7 +60,7 @@ describe('ProjectBuildCache', () => {
     it('returns a ProjectBuildCache with a calculated cacheId value', async () => {
       const subject: ProjectBuildCache = (await prepareSubject({}))!;
       expect(subject['_cacheId']).toMatchInlineSnapshot(
-        `"acme-wizard/e229f8765b7d450a8a84f711a81c21e37935d661"`
+        `"acme-wizard/608b0a2e67abf4598df9cb5c068fd084dce90024"`
       );
     });
 
