@@ -2,7 +2,7 @@
 // See LICENSE in the project root for license information.
 
 import { AsyncSeriesHook, AsyncSeriesWaterfallHook } from 'tapable';
-import { Task } from '../logic/taskExecution/Task';
+import { Operation } from '../logic/operations/Operation';
 
 /**
  * Hooks usable by rush plugins to modify the behavior of a phased script action.
@@ -21,15 +21,14 @@ export class PhasedScriptActionHooks {
    * The hook to run after calculating the set of operations to include but before executing them for the initial run.
    * Allows a plugin to modify the execution graph.
    */
-  public prepareOperations: AsyncSeriesWaterfallHook<Set<Task>> = new AsyncSeriesWaterfallHook<Set<Task>>(
-    ['operations'],
-    'prepareOperations'
-  );
+  public prepareOperations: AsyncSeriesWaterfallHook<Set<Operation>> = new AsyncSeriesWaterfallHook<
+    Set<Operation>
+  >(['operations'], 'prepareOperations');
   /**
    * The hook to run after calculating the set of operations to include but before executing them for a watch-mode run.
    * Allows a plugin to modify the execution graph.
    */
-  public prepareWatchOperations: AsyncSeriesWaterfallHook<Set<Task>> = new AsyncSeriesWaterfallHook<
-    Set<Task>
+  public prepareWatchOperations: AsyncSeriesWaterfallHook<Set<Operation>> = new AsyncSeriesWaterfallHook<
+    Set<Operation>
   >(['operations'], 'prepareWatchOperations');
 }

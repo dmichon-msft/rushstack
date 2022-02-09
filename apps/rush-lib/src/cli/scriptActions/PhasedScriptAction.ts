@@ -47,7 +47,7 @@ export interface IPhasedScriptActionOptions extends IBaseScriptActionOptions<IPh
 }
 
 interface IExecuteInternalOptions {
-  taskExecutionManagerOptions: IOperationExecutionManagerOptions;
+  executionManagerOptions: IOperationExecutionManagerOptions;
   isWatch: boolean;
   operationFactoryOptions: IOperationFactoryOptions;
   projectSelection: ReadonlySet<RushConfigurationProject>;
@@ -418,8 +418,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> impleme
    * Runs a set of operations and reports the results.
    */
   private async _executeOperations(options: IExecutionOperationsOptions): Promise<void> {
-    const { executionManagerOptions, ignoreHooks, operations, stopwatch, suppressErrors, terminal } =
-      options;
+    const { executionManagerOptions, ignoreHooks, operations, stopwatch, suppressErrors, terminal } = options;
 
     const executionManager: OperationExecutionManager = new OperationExecutionManager(
       operations,
