@@ -3,6 +3,7 @@
 
 import * as os from 'os';
 import colors from 'colors/safe';
+import { AsyncSeriesHook } from 'tapable';
 
 import { AlreadyReportedError, Terminal } from '@rushstack/node-core-library';
 import { CommandLineFlagParameter, CommandLineStringParameter } from '@rushstack/ts-command-line';
@@ -27,6 +28,8 @@ import { IOperationFactoryOptions, OperationFactory } from '../../logic/operatio
 import { Selection } from '../../logic/Selection';
 import { Event } from '../../api/EventHooks';
 import { ProjectChangeAnalyzer } from '../../logic/ProjectChangeAnalyzer';
+import { IPhasedScriptAction } from '../../pluginFramework/RushLifeCycle';
+import { PhasedScriptActionHooks } from '../../pluginFramework/PhasedScriptActionHooks';
 
 /**
  * Constructor parameters for BulkScriptAction.
@@ -70,7 +73,9 @@ interface IExecutionOperationsOptions {
  * and "rebuild" commands are also modeled as phased commands with a single phase that invokes the npm
  * "build" script for each project.
  */
-export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
+export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> implements IPhasedScriptAction {
+  public readonly hooks: PhasedScriptActionHooks;
+
   private readonly _enableParallelism: boolean;
   private readonly _isIncrementalBuildAllowed: boolean;
   private readonly _disableBuildCache: boolean;
@@ -95,9 +100,22 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
     this._initialPhases = options.initialPhases;
     this._watchPhases = options.watchPhases;
     this._alwaysWatch = options.alwaysWatch;
+    this.hooks = new PhasedScriptActionHooks();
   }
 
   public async runAsync(): Promise<void> {
+    const { hooks } = this.rushSession;
+    if (hooks.anyPhasedScriptComamnd.isUsed()) {
+      await hooks.anyPhasedScriptComamnd.promise(this);
+    }
+
+    const specificHook: AsyncSeriesHook<IPhasedScriptAction> | undefined = hooks.phasedScriptCommand.get(
+      this.actionName
+    );
+    if (specificHook) {
+      await specificHook.promise(this);
+    }
+
     // TODO: Replace with last-install.flag when "rush link" and "rush unlink" are deprecated
     const lastLinkFlag: LastLinkFlag = LastLinkFlagFactory.getCommonTempFlag(this.rushConfiguration);
     if (!lastLinkFlag.isValid()) {
@@ -180,6 +198,8 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
   }
 
   private async _runInitialPhases(options: IExecuteInternalOptions): Promise<void> {
+    const { hooks } = this;
+
     const {
       executionManagerOptions,
       isWatch,
@@ -195,10 +215,14 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
 
     const operationFactory: OperationFactory = new OperationFactory(operationFactoryOptions);
 
-    const operations: Set<Operation> = selector.createOperations({
+    let operations: Set<Operation> = selector.createOperations({
       operationFactory,
       projectSelection
     });
+
+    if (hooks.prepareOperations.isUsed()) {
+      operations = await hooks.prepareOperations.promise(operations);
+    }
 
     const initialOptions: IExecutionOperationsOptions = {
       ignoreHooks: false,
@@ -210,6 +234,10 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
     };
 
     await this._executeOperations(initialOptions);
+
+    if (hooks.afterRun.isUsed()) {
+      await hooks.afterRun.promise();
+    }
   }
 
   /**
@@ -227,6 +255,8 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
       stopwatch,
       terminal
     } = options;
+
+    const { hooks } = this;
 
     const selector: OperationSelector = new OperationSelector({
       phasesToRun: new Set(this._watchPhases)
@@ -253,6 +283,9 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
         }. Press Ctrl+C to exit.`
       );
     };
+
+    const hasPrepareWatchOperations: boolean = hooks.prepareWatchOperations.isUsed();
+    const hasAfterWatchRun: boolean = hooks.afterWatchRun.isUsed();
 
     // Loop until Ctrl+C
     // eslint-disable-next-line no-constant-condition
@@ -285,10 +318,14 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
         projectChangeAnalyzer: state
       });
 
-      const operations: Set<Operation> = selector.createOperations({
+      let operations: Set<Operation> = selector.createOperations({
         projectSelection,
         operationFactory
       });
+
+      if (hasPrepareWatchOperations) {
+        operations = await hooks.prepareWatchOperations.promise(operations);
+      }
 
       const executeOptions: IExecutionOperationsOptions = {
         // For now, don't run pre-build or post-build in watch mode
@@ -308,6 +345,10 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommand> {
         if (!(err instanceof AlreadyReportedError)) {
           throw err;
         }
+      }
+
+      if (hasAfterWatchRun) {
+        await this.hooks.afterWatchRun.promise();
       }
     }
   }
