@@ -13,6 +13,9 @@ import {
   IRushPluginManifestJson,
   PluginLoaderBase
 } from './PluginLoaderBase';
+import type { RushSession } from '../RushSession';
+import type { RushConfiguration } from '../../api/RushConfiguration';
+import type { IRushPlugin } from '../IRushPlugin';
 
 /**
  * @beta
@@ -40,7 +43,7 @@ export class AutoinstallerPluginLoader extends PluginLoaderBase<IRushPluginConfi
     return path.join(autoinstaller.folderFullPath, 'rush-plugins');
   }
 
-  public update(): void {
+  public update(session: RushSession, configuration: RushConfiguration): void {
     const packageName: string = this.packageName;
     const pluginName: string = this.pluginName;
     const packageFolder: string = this.packageFolder;
@@ -80,6 +83,9 @@ export class AutoinstallerPluginLoader extends PluginLoaderBase<IRushPluginConfi
         destinationPath: this._getCommandLineJsonFilePath()
       });
     }
+
+    const plugin: IRushPlugin | undefined = this.load();
+    plugin.apply(session, configuration);
   }
 
   public get autoinstaller(): Autoinstaller {

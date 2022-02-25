@@ -109,7 +109,7 @@ export class PluginManager {
       }
     }
     for (const pluginLoader of this._autoinstallerPluginLoaders) {
-      pluginLoader.update();
+      pluginLoader.update(this._rushSession, this._rushConfiguration);
     }
   }
 
