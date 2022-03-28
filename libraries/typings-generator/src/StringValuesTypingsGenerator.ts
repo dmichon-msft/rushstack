@@ -64,11 +64,8 @@ export class StringValuesTypingsGenerator extends TypingsGenerator {
         const interfaceName: string = options.exportAsDefaultInterfaceName
           ? options.exportAsDefaultInterfaceName
           : EXPORT_AS_DEFAULT_INTERFACE_NAME;
-        let indent: string = '';
-        if (options.exportAsDefault) {
-          outputLines.push(`export interface ${interfaceName} {`);
-          indent = '  ';
-        }
+        outputLines.push(`${options.exportAsDefault ? 'export ' : ''}interface ${interfaceName} {`);
+        const indent: string = '  ';
 
         for (const stringValueTyping of stringValueTypings.typings) {
           const { exportName, comment } = stringValueTyping;
@@ -81,21 +78,15 @@ export class StringValuesTypingsGenerator extends TypingsGenerator {
             );
           }
 
-          if (options.exportAsDefault) {
-            outputLines.push(`${indent}'${exportName}': string;`, '');
-          } else {
-            outputLines.push(`export declare const ${exportName}: string;`, '');
-          }
+          outputLines.push(`${indent}'${exportName}': string;`, '');
         }
 
+        outputLines.push('}', '', `declare const strings: ${interfaceName};`, '');
+
         if (options.exportAsDefault) {
-          outputLines.push(
-            '}',
-            '',
-            `declare const strings: ${interfaceName};`,
-            '',
-            'export default strings;'
-          );
+          outputLines.push('export default strings;');
+        } else {
+          outputLines.push('export = strings;');
         }
 
         return outputLines.join(EOL);

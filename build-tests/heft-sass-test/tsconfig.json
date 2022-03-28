@@ -6,6 +6,7 @@
     "rootDir": "src",
     "rootDirs": ["src", "temp/sass-ts"],
 
+    "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "jsx": "react",
     "declaration": true,
