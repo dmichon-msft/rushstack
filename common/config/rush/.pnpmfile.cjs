@@ -38,5 +38,14 @@ function readPackage(packageJson, context) {
     delete packageJson.dependencies['eslint-config-serverless-stack'];
   }
 
+  if (packageJson.name !== '@rushstack/heft-bundle') {
+    if (packageJson.dependencies && packageJson.dependencies['@rushstack/heft'] === 'workspace:*') {
+      packageJson.dependencies['@rushstack/heft'] = 'workspace:@rushstack/heft-bundle@*';
+    }
+    if (packageJson.devDependencies && packageJson.devDependencies['@rushstack/heft'] === 'workspace:*') {
+      packageJson.devDependencies['@rushstack/heft'] = 'workspace:@rushstack/heft-bundle@*';
+    }
+  }
+
   return packageJson;
 }

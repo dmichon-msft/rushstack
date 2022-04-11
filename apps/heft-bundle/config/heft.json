@@ -1,0 +1,30 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/heft/heft.schema.json",
+
+  "eventActions": [
+    {
+      "heftEvent": "clean",
+      "actionId": "CleanOutput",
+      "actionKind": "deleteGlobs",
+      "globsToDelete": ["dist", "schemas"]
+    },
+    {
+      "heftEvent": "pre-compile",
+      "actionId": "CopySchemas",
+      "actionKind": "copyFiles",
+      "copyOperations": [
+        {
+          "fileExtensions": [".json"],
+          "destinationFolders": ["schemas"],
+          "sourceFolder": "node_modules/@rushstack/heft/lib/schemas"
+        }
+      ]
+    }
+  ],
+
+  "heftPlugins": [
+    {
+      "plugin": "@rushstack/heft-webpack5-plugin"
+    }
+  ]
+}
