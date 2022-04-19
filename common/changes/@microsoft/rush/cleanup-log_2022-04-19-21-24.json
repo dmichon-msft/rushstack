@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/rush",
+      "comment": "Remove noisy log statement in project watcher.",
+      "type": "none"
+    }
+  ],
+  "packageName": "@microsoft/rush"
+}
