@@ -5,6 +5,7 @@
 import './jestWorkerPatch';
 
 import * as path from 'path';
+import type * as child_process from 'child_process';
 import { resolveRunner, resolveSequencer, resolveTestEnvironment, resolveWatchPlugin } from 'jest-resolve';
 import { mergeWith, isObject } from 'lodash';
 import type {
@@ -23,7 +24,10 @@ import type {
   IHeftIntegerParameter,
   IHeftStringListParameter
 } from '@rushstack/heft';
-import { getVersion, runCLI } from '@jest/core';
+import { getVersion } from '@jest/core';
+import type runJestType from '@jest/core/build/runJest';
+import { readConfig } from 'jest-config';
+import JestResolver from 'jest-resolve';
 import type { Config } from '@jest/types';
 import {
   ConfigurationFile,
@@ -32,6 +36,7 @@ import {
   PathResolutionMethod
 } from '@rushstack/heft-config-file';
 import {
+  Executable,
   FileSystem,
   Import,
   JsonFile,
@@ -43,6 +48,10 @@ import {
 import type { IHeftJestReporterOptions } from './HeftJestReporter';
 import { HeftJestDataFile } from './HeftJestDataFile';
 import { jestResolve } from './JestUtils';
+
+// How to bypass 'exports' in package.json to get at the useful stuff
+const jestModulePath = require.resolve('@jest/core').replace(/jest.js$/, 'runJest.js');
+const runJest: typeof runJestType = require(jestModulePath).default;
 
 type JestReporterConfig = string | Config.ReporterConfig;
 
@@ -91,6 +100,24 @@ const CONFIGDIR_TOKEN: string = '<configDir>';
 const PACKAGE_CAPTUREGROUP: string = 'package';
 const PACKAGEDIR_REGEX: RegExp = /^<packageDir:\s*(?<package>[^\s>]+)\s*>/;
 const JSONPATHPROPERTY_REGEX: RegExp = /^\$\['([^']+)'\]/;
+
+function getTrackedProjectFiles(buildFolder: string): string[] {
+  const lsTreeResult: child_process.SpawnSyncReturns<string> = Executable.spawnSync(
+    'git',
+    ['--no-optional-locks', 'ls-tree', '-r', '-z', '--name-only', 'HEAD', '--'],
+    {
+      currentWorkingDirectory: buildFolder
+    }
+  );
+
+  if (lsTreeResult.status !== 0) {
+    throw new Error(`git ls-tree exited with status ${lsTreeResult.status}: ${lsTreeResult.stderr}`);
+  }
+
+  return lsTreeResult.stdout.split('\0').map((relativePath: string) => {
+    return path.join(buildFolder, relativePath);
+  });
+}
 
 /**
  * @internal
@@ -175,9 +202,10 @@ export class JestPlugin implements IHeftPlugin<IJestPluginOptions> {
 
     const jestArgv: Config.Argv = {
       watch: testStageProperties.watchMode,
+      noCache: true,
 
       // In debug mode, avoid forking separate processes that are difficult to debug
-      runInBand: debugMode,
+      runInBand: true,
       debug: debugMode,
       detectOpenHandles: options?.detectOpenHandles || false,
 
@@ -232,8 +260,124 @@ export class JestPlugin implements IHeftPlugin<IJestPluginOptions> {
       // in the debugger to validate that your changes are being applied as expected.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       globalConfig,
-      results: jestResults
-    } = await runCLI(jestArgv, [buildFolder]);
+      hasDeprecationWarnings,
+      projectConfig
+    } = await readConfig(jestArgv, jestConfig, false, buildFolder);
+
+    const trackedProjectFiles: string[] = await getTrackedProjectFiles(buildFolder);
+
+    const hasteFS: any = {
+      exists(path: string): boolean {
+        return false;
+      },
+      getAllFiles(): string[] {
+        return trackedProjectFiles;
+      },
+      getDependencies(path: string): [] {
+        return [];
+      },
+      getSize(path: string): undefined {
+        return;
+      },
+      getAbsoluteFileIterator(): Iterable<string> {
+        return trackedProjectFiles;
+      },
+      matchFiles(pattern: string | RegExp) {
+        if (!(pattern instanceof RegExp)) {
+          pattern = new RegExp(pattern);
+        }
+
+        const files: string[] = [];
+
+        for (const file of this.getAbsoluteFileIterator()) {
+          if (pattern.test(file)) {
+            files.push(file);
+          }
+        }
+
+        return files;
+      }
+    };
+    const moduleMap: any = {
+      getModule(id: string): undefined {
+        return;
+      },
+      getPackage(id: string): undefined {
+        return;
+      },
+      getMockModule(id: string): undefined {
+        return;
+      },
+      toJSON(): string {
+        return '{}';
+      }
+    };
+
+    const moduleNameMapper:
+      | {
+          moduleName: string;
+          regex: RegExp;
+        }[]
+      | undefined = (() => {
+      if (Array.isArray(projectConfig.moduleNameMapper) && projectConfig.moduleNameMapper.length) {
+        return projectConfig.moduleNameMapper.map(([regex, moduleName]) => ({
+          moduleName,
+          regex: new RegExp(regex)
+        }));
+      }
+
+      return undefined;
+    })();
+
+    const resolver: any = new JestResolver(moduleMap, {
+      defaultPlatform: '',
+      extensions: projectConfig.moduleFileExtensions.map((extension) => '.' + extension),
+      hasCoreModules: true,
+      moduleDirectories: projectConfig.moduleDirectories,
+      moduleNameMapper: moduleNameMapper,
+      modulePaths: projectConfig.modulePaths,
+      platforms: projectConfig.haste.platforms,
+      resolver: projectConfig.resolver,
+      rootDir: projectConfig.rootDir
+    });
+
+    const testWatcher: any = {
+      isInterrupted: () => false,
+      isWatchMode: () => false
+    };
+
+    const startRun = async () => {
+      if (!globalConfig.listTests) {
+        // preRunMessagePrint(outputStream);
+      }
+
+      let results: any;
+
+      await runJest({
+        changedFilesPromise: undefined,
+        contexts: [
+          {
+            config: projectConfig,
+            hasteFS,
+            moduleMap,
+            resolver
+          }
+        ],
+        failedTestsCache: undefined,
+        filter: undefined,
+        globalConfig,
+        onComplete: (r: unknown) => {
+          results = r;
+        },
+        outputStream: process.stdout,
+        startRun,
+        testWatcher
+      });
+
+      return results;
+    };
+
+    const jestResults = await startRun();
 
     if (jestResults.numFailedTests > 0) {
       scopedLogger.emitError(
