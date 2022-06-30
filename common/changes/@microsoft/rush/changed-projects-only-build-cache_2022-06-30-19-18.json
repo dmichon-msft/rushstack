@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/rush",
+      "comment": "Disable `--changed-projects-only` flag for non-watch builds if the build-cache is enabled. Implement the feature for watch mode builds.",
+      "type": "none"
+    }
+  ],
+  "packageName": "@microsoft/rush"
+}

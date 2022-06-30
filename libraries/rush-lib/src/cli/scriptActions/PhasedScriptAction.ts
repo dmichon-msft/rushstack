@@ -202,6 +202,15 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
       );
     }
 
+    const isWatch: boolean = this._watchParameter?.value || this._alwaysWatch;
+
+    if (buildCacheConfiguration?.buildCacheEnabled && this._changedProjectsOnly.value && !isWatch) {
+      terminal.writeErrorLine(
+        `The "--changed-projects-only" flag is not currently compatible with the build cache feature when not running in watch mode.`
+      );
+      throw new AlreadyReportedError();
+    }
+
     const projectSelection: Set<RushConfigurationProject> =
       await this._selectionParameters.getSelectedProjectsAsync(terminal);
 
@@ -210,8 +219,6 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
       return;
     }
 
-    const isWatch: boolean = this._watchParameter?.value || this._alwaysWatch;
-
     const customParametersByName: Map<string, CommandLineParameter> = new Map();
     for (const [configParameter, parserParameter] of this.customParameters) {
       customParametersByName.set(configParameter.longName, parserParameter);
@@ -219,6 +226,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
 
     const initialCreateOperationsContext: ICreateOperationsContext = {
       buildCacheConfiguration,
+      changedProjectsOnly,
       customParameters: customParametersByName,
       isIncrementalBuildAllowed: this._isIncrementalBuildAllowed,
       isInitial: true,

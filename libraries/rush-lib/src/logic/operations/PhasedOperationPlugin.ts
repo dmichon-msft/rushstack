@@ -29,7 +29,12 @@ function createOperations(
   existingOperations: Set<Operation>,
   context: ICreateOperationsContext
 ): Set<Operation> {
-  const { projectsInUnknownState: changedProjects, phaseSelection, projectSelection } = context;
+  const {
+    changedProjectsOnly,
+    projectsInUnknownState: changedProjects,
+    phaseSelection,
+    projectSelection
+  } = context;
   const operationsWithWork: Set<Operation> = new Set();
 
   const operations: Map<string, Operation> = new Map();
@@ -41,10 +46,14 @@ function createOperations(
     }
   }
 
-  // Recursively expand all consumers in the `operationsWithWork` set.
-  for (const operation of operationsWithWork) {
-    for (const consumer of operation.consumers) {
-      operationsWithWork.add(consumer);
+  if (!changedProjectsOnly) {
+    // Recursively expand all consumers in the `operationsWithWork` set.
+    // This is done on the operation graph instead of the project graph to accommodate phases that don't depend on
+    // project dependencies. Said phases only need to execute for `projectsInUnknownState`.
+    for (const operation of operationsWithWork) {
+      for (const consumer of operation.consumers) {
+        operationsWithWork.add(consumer);
+      }
     }
   }
 

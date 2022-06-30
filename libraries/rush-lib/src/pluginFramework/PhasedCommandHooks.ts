@@ -34,6 +34,11 @@ export interface ICreateOperationsContext {
    */
   readonly buildCacheConfiguration: BuildCacheConfiguration | undefined;
   /**
+   * If true, then only projects in the `projectsInUnknownState` collection should get built.
+   * If false, consumers of the `projectsInUnknownState` will also get built.
+   */
+  readonly changedProjectsOnly: boolean;
+  /**
    * The set of custom parameters for the executing command.
    * Maps from the `longName` field in command-line.json to the parser configuration in ts-command-line.
    */
