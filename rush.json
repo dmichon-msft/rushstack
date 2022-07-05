@@ -817,6 +817,12 @@
       "shouldPublish": true
     },
     {
+      "packageName": "@rushstack/heft-isolated-transpile-plugin",
+      "projectFolder": "heft-plugins/heft-isolated-transpile-plugin",
+      "reviewCategory": "libraries",
+      "shouldPublish": true
+    },
+    {
       "packageName": "@rushstack/heft-jest-plugin",
       "projectFolder": "heft-plugins/heft-jest-plugin",
       "reviewCategory": "libraries",
