@@ -1,14 +1,18 @@
-import { resolve } from 'path';
+import fs from 'fs';
+import { basename, resolve } from 'path';
+import { performance } from 'perf_hooks';
 
-import { Config, JscTarget, ModuleConfig, Output, transformFile, Options } from '@swc/core';
+import { Config, JscTarget, ModuleConfig, Output, Options, ParserConfig } from '@swc/core';
+import { parseFile, transform } from '@swc/core/binding';
 import * as ts from 'typescript';
 
 import { Async } from '@rushstack/node-core-library/lib/Async';
-import { FileSystem } from '@rushstack/node-core-library/lib/FileSystem';
 
 import type { IHeftPlugin, HeftSession, HeftConfiguration } from '@rushstack/heft';
 import type { ICommonTranspileOptions, IProjectOptions } from './types';
 import { loadTsconfig, TExtendedTypeScript } from './readTsConfig';
+import { Queue } from './Queue';
+import { PathTree } from './PathTree';
 
 const pluginName: 'SWCTranspilePlugin' = 'SWCTranspilePlugin';
 
@@ -52,11 +56,33 @@ const targetMap: Record<ts.ScriptTarget, JscTarget | undefined> = {
   [ts.ScriptTarget.Latest]: 'es2022'
 };
 
+interface ITransformItem {
+  srcFilePath: string;
+  relativeSrcFilePath: string;
+  serializedOptionsBuffer: Buffer;
+  jsFilePath: string;
+  mapFilePath: string | undefined;
+}
+
+interface ISourceMap {
+  version: 3;
+  sources: string[];
+  sourcesContent?: string[];
+  sourceRoot?: string;
+  names: string[];
+  mappings: string;
+}
+
+interface IEmitKind {
+  moduleKind: ts.ModuleKind;
+  scriptTarget: ts.ScriptTarget;
+}
+
 export async function transpileProjectAsync(
   projectOptions: IProjectOptions,
   pluginOptions: ICommonTranspileOptions
 ): Promise<void> {
-  const { buildFolder } = projectOptions;
+  const buildFolder: string = projectOptions.buildFolder.replace(/\\/g, '/');
 
   console.log(`Initialized`, process.uptime());
 
@@ -66,10 +92,10 @@ export async function transpileProjectAsync(
     pluginOptions
   );
   const {
-    fileNames,
+    fileNames: filesFromTsConfig,
     options: {
       module,
-      outDir,
+      outDir = resolve(buildFolder, 'lib').replace(/\\/g, '/'),
       sourceMap,
       sourceRoot,
       experimentalDecorators,
@@ -83,124 +109,239 @@ export async function transpileProjectAsync(
   tsconfig.options.declaration = false;
   tsconfig.options.emitDeclarationOnly = false;
 
+  const sourceFilePaths: string[] = filesFromTsConfig.filter((filePath) => !filePath.endsWith('.d.ts'));
+
   console.log(`Read Config`, process.uptime());
 
-  const outdir: string = outDir ?? resolve(buildFolder, 'lib');
+  const srcDir: string = resolve(buildFolder, 'src').replace(/\\/g, '/');
 
-  FileSystem.ensureEmptyFolder(outdir);
-
-  const format: ModuleConfig['type'] | undefined = module !== undefined ? moduleMap[module] : module;
-  if (format === undefined) {
-    throw new Error(`Unsupported Module Kind: ${module && ts.ModuleKind[module]} for swc`);
-  }
-
-  const target: JscTarget | undefined = rawTarget !== undefined ? targetMap[rawTarget] : rawTarget;
-  if (target === undefined) {
-    throw new Error(`Unsupported Target: ${target && ts.ScriptTarget[target]} for swc`);
-  }
-
-  const root: string = resolve(buildFolder, 'src');
+  const outputs: PathTree<ITransformItem> = new PathTree();
 
   const sourceMaps: Config['sourceMaps'] = inlineSourceMap ? 'inline' : sourceMap;
+  const externalSourceMaps: boolean = sourceMaps === true;
 
-  const moduleConfig: ModuleConfig = {
-    type: format
-  };
+  function getOptionsBuffer({ moduleKind, scriptTarget }: IEmitKind): Buffer {
+    const format: ModuleConfig['type'] | undefined =
+      moduleKind !== undefined ? moduleMap[moduleKind] : moduleKind;
+    if (format === undefined) {
+      throw new Error(`Unsupported Module Kind: ${moduleKind && ts.ModuleKind[moduleKind]} for swc`);
+    }
 
-  console.log(`Starting Transpile`, process.uptime());
+    const target: JscTarget | undefined = scriptTarget !== undefined ? targetMap[scriptTarget] : scriptTarget;
+    if (target === undefined) {
+      throw new Error(`Unsupported Target: ${target && ts.ScriptTarget[target]} for swc`);
+    }
+
+    const moduleConfig: ModuleConfig = {
+      type: format,
+      noInterop: tsconfig.options.esModuleInterop === false
+    };
+
+    const options: Options = {
+      cwd: buildFolder,
+      root: srcDir,
+      rootMode: 'root',
+      configFile: false,
+      swcrc: false,
+      minify: false,
+
+      inputSourceMap: false,
+      sourceRoot,
+      isModule: true,
+
+      sourceMaps,
+      inlineSourcesContent: inlineSources,
+
+      module: moduleConfig,
+      jsc: {
+        target,
+        externalHelpers: true,
+        parser: undefined,
+        transform: {
+          react: {},
+          useDefineForClassFields
+        }
+      }
+    };
+
+    const optionsBuffer: Buffer = Buffer.from(JSON.stringify(options));
+
+    return optionsBuffer;
+  }
+
+  const rootPrefixLength: number = `${srcDir}/`.length;
+
+  const moduleKindsToEmit: [string, IEmitKind][] = [
+    [outDir.slice(buildFolder.length), { moduleKind: module!, scriptTarget: rawTarget! }],
+    [`/lib-commonjs`, { moduleKind: ts.ModuleKind.CommonJS, scriptTarget: rawTarget! }],
+    [`/lib-amd`, { moduleKind: ts.ModuleKind.AMD, scriptTarget: ts.ScriptTarget.ES5 }]
+  ];
+
+  const outputOptions: Map<string, Buffer> = new Map(
+    moduleKindsToEmit.map(([outPrefix, emitKind]) => {
+      return [outPrefix, getOptionsBuffer(emitKind)];
+    })
+  );
+
+  const transformTimes: [string, number][] = [];
+
+  const writeQueue: Queue<[string, Buffer]> = new Queue();
+
+  for (const srcFilePath of sourceFilePaths) {
+    const relativeSrcFilePath: string = srcFilePath.slice(rootPrefixLength);
+    const extensionIndex: number = relativeSrcFilePath.lastIndexOf('.');
+
+    const relativeJsFilePath: string = `${relativeSrcFilePath.slice(0, extensionIndex)}.js`;
+    for (const [outputPrefix, serializedOptionsBuffer] of outputOptions) {
+      const jsFilePath: string = `${outputPrefix}/${relativeJsFilePath}`;
+      const mapFilePath: string | undefined = externalSourceMaps ? `${jsFilePath}.map` : undefined;
+
+      const item: ITransformItem = {
+        srcFilePath,
+        relativeSrcFilePath,
+        serializedOptionsBuffer,
+        jsFilePath,
+        mapFilePath
+      };
+
+      outputs.setItem(jsFilePath, item);
+    }
+  }
 
   const errors: [string, Error][] = [];
 
-  await Async.forEachAsync(
-    fileNames,
-    async (fileName: string) => {
-      if (fileName.endsWith('.d.ts')) {
-        return;
-      }
+  const nonTsxParserOptions: ParserConfig = {
+    syntax: 'typescript',
+    decorators: experimentalDecorators,
+    dynamicImport: true,
+    tsx: false
+  };
+  const tsxParserOptions: ParserConfig = {
+    ...nonTsxParserOptions,
+    tsx: true
+  };
 
-      const outputFileNames: readonly string[] = ts.getOutputFileNames(tsconfig, fileName, false);
+  const serializedNonTsxParserOptions: Buffer = Buffer.from(JSON.stringify(nonTsxParserOptions));
+  const serializedTsxParserOptions: Buffer = Buffer.from(JSON.stringify(tsxParserOptions));
 
-      let jsFileName: string | undefined;
-      let mapName: string | undefined;
-      for (const outputName of outputFileNames) {
-        if (outputName.endsWith('js')) {
-          jsFileName = outputName;
-        } else if (outputName.endsWith('js.map')) {
-          mapName = outputName;
-        }
-      }
+  const serializedASTByFilePath: Map<string, string> = new Map();
+  const parseTimes: [string, number][] = [];
 
-      if (!jsFileName) {
-        throw new Error(`Could not determine output JS file name for '${fileName}'`);
-      }
-      if (sourceMap && !mapName) {
-        throw new Error(`Could not determine output map file name for '${fileName}'`);
-      }
+  console.log(`Cleaning Outputs`, process.uptime());
 
-      const options: Options = {
-        cwd: buildFolder,
-        filename: fileName,
-        root,
-        rootMode: 'root',
-        configFile: false,
-        swcrc: false,
-        minify: false,
+  await Async.forEachAsync(moduleKindsToEmit, async ([outPrefix]) => {
+    const dirToClean: string = `${buildFolder}${outPrefix}`;
+    console.log(`Cleaning '${dirToClean}'`);
+    await (fs as any).promises.rm(dirToClean, { force: true, recursive: true });
+  });
 
-        inputSourceMap: false,
-        sourceRoot,
-        isModule: true,
+  console.log(`Starting Parse`, process.uptime());
 
-        sourceMaps,
-        inlineSourcesContent: inlineSources,
+  const parsePromise: Promise<void> = Async.forEachAsync(
+    sourceFilePaths,
+    async (srcFilePath: string) => {
+      const tsx: boolean = srcFilePath.charCodeAt(srcFilePath.length - 1) === 120;
+      const serializedParserOptions: Buffer = tsx
+        ? serializedTsxParserOptions
+        : serializedNonTsxParserOptions;
 
-        module: moduleConfig,
-        jsc: {
-          target,
-          externalHelpers: true,
-          parser: {
-            syntax: 'typescript',
-            decorators: experimentalDecorators,
-            dynamicImport: true,
-            tsx: fileName.endsWith('x')
-          },
-          transform: {
-            react: {},
-            useDefineForClassFields
-          }
-        }
-      };
-
-      let result: Output | undefined;
-
+      const start: number = performance.now();
       try {
-        result = await transformFile(fileName, options);
+        const jsonAST: string = await parseFile(srcFilePath, serializedParserOptions);
+        serializedASTByFilePath.set(srcFilePath, jsonAST);
       } catch (error) {
-        errors.push([fileName, error as Error]);
+        errors.push([srcFilePath, error as Error]);
         return;
-      }
-
-      if (result) {
-        const promises: Promise<void>[] = [];
-        promises.push(
-          FileSystem.writeFileAsync(jsFileName, result.code, {
-            ensureFolderExists: true
-          })
-        );
-        if (mapName && result.map) {
-          promises.push(
-            FileSystem.writeFileAsync(mapName, result.map, {
-              ensureFolderExists: true
-            })
-          );
-        }
-
-        await Promise.all(promises);
+      } finally {
+        const end: number = performance.now();
+        parseTimes.push([srcFilePath, end - start]);
       }
     },
     {
-      concurrency: 8
+      concurrency: 4
     }
   );
+
+  const createDirsPromise: Promise<void> = Async.forEachAsync(
+    outputs.iterateParentNodes(),
+    async (dirname: string) => fs.promises.mkdir(`${buildFolder}${dirname}`, { recursive: true }),
+    {
+      concurrency: 20
+    }
+  );
+
+  await Promise.all([parsePromise, createDirsPromise]);
+
+  printTiming(parseTimes, 'Parsed');
+
+  console.log(`Starting Transpile`, process.uptime());
+
+  const writePromise: Promise<void> = Async.forEachAsync(
+    writeQueue,
+    async ([fileName, content]) => {
+      await fs.promises.writeFile(fileName, content, {
+        encoding: 'buffer'
+      });
+    },
+    {
+      concurrency: 20
+    }
+  );
+
+  await Async.forEachAsync(
+    outputs.iterateLeafNodes(),
+    async (entry: [string, ITransformItem]) => {
+      const { srcFilePath, relativeSrcFilePath, serializedOptionsBuffer, jsFilePath, mapFilePath } = entry[1];
+
+      const jsonAST: string | undefined = serializedASTByFilePath.get(srcFilePath);
+      if (!jsonAST) {
+        errors.push([jsFilePath, new Error(`Missing AST for '${srcFilePath}'`)]);
+        return;
+      }
+
+      let result: Output | undefined;
+
+      const start: number = performance.now();
+      try {
+        result = await transform(jsonAST, true, serializedOptionsBuffer);
+      } catch (error) {
+        errors.push([jsFilePath, error as Error]);
+        return;
+      } finally {
+        const end: number = performance.now();
+        transformTimes.push([jsFilePath, end - start]);
+      }
+
+      if (result) {
+        let { code, map } = result;
+
+        if (mapFilePath && map) {
+          code += `\n//#sourceMappingUrl=./${basename(mapFilePath)}`;
+          const parsedMap: ISourceMap = JSON.parse(map);
+          parsedMap.sources[0] = relativeSrcFilePath;
+          map = JSON.stringify(parsedMap);
+          writeQueue.push([`${buildFolder}${mapFilePath}`, Buffer.from(map)]);
+        }
+
+        writeQueue.push([`${buildFolder}${jsFilePath}`, Buffer.from(code)]);
+      }
+    },
+    {
+      concurrency: 4
+    }
+  ).then(
+    () => writeQueue.finish(),
+    (error) => {
+      writeQueue.finish();
+      throw error;
+    }
+  );
+
+  printTiming(transformTimes, 'Transformed');
+
+  await writePromise;
+
+  console.log(`Emitted.`, process.uptime());
 
   const sortedErrors: [string, Error][] = errors.sort((x, y): number => {
     const xPath: string = x[0];
@@ -208,7 +349,22 @@ export async function transpileProjectAsync(
     return xPath > yPath ? 1 : xPath < yPath ? -1 : 0;
   });
   for (const [, error] of sortedErrors) {
-    process.stderr.write(error.toString());
+    console.error(error.toString());
+  }
+
+  function printTiming(times: [string, number][], descriptor: string): void {
+    times.sort((x, y): number => {
+      return y[1] - x[1];
+    });
+    console.log(`${descriptor} ${times.length} files at `, process.uptime());
+    console.log(`Slowest files:`);
+    for (let i: number = 0, len: number = Math.min(times.length, 10); i < len; i++) {
+      const [fileName, time] = times[i];
+      console.log(`- ${fileName}: ${time.toFixed(2)}ms`);
+    }
+    const medianIndex: number = times.length >> 1;
+    const [medianFileName, medianTime] = times[medianIndex];
+    console.log(`Median (${medianFileName}): ${medianTime.toFixed(2)}ms`);
   }
 }
 
