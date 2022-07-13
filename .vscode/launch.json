@@ -40,6 +40,21 @@
 			"internalConsoleOptions": "neverOpen"
 		},
 		{
+			"type": "node",
+			"request": "launch",
+			"name": "Transpile Sources in module-minifier-plugin",
+			"cwd": "${workspaceFolder}/webpack/module-minifier-plugin-5",
+			"runtimeArgs": [
+				"--inspect-brk",
+				"${workspaceFolder}/heft-plugins/heft-isolated-transpile-plugin/lib/cli.js",
+				"typescript"
+			],
+			"skipFiles": ["<node_internals>/**"],
+			"outFiles": [],
+			"console": "integratedTerminal",
+			"internalConsoleOptions": "neverOpen"
+		},
+		{
 			"name": "Attach",
 			"type": "node",
 			"request": "attach",

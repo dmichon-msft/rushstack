@@ -1,4 +1,6 @@
+import fs from 'fs';
 import { resolve } from 'path';
+import { performance } from 'perf_hooks';
 
 import * as ts from 'typescript';
 
@@ -8,8 +10,10 @@ import type { IHeftPlugin, HeftSession, HeftConfiguration } from '@rushstack/hef
 
 import type { ICommonTranspileOptions, IProjectOptions } from './types';
 import { loadTsconfig, TExtendedTypeScript } from './readTsConfig';
+import { PathTree } from './PathTree';
+import { Queue } from './Queue';
 
-const pluginName: 'SWCTranspilePlugin' = 'SWCTranspilePlugin';
+const pluginName: 'TypescriptTranspilePlugin' = 'TypescriptTranspilePlugin';
 
 const plugin: IHeftPlugin<ICommonTranspileOptions> = {
   pluginName,
@@ -18,6 +22,22 @@ const plugin: IHeftPlugin<ICommonTranspileOptions> = {
     // Nothing
   }
 };
+
+interface ITypescriptTranspileOption {
+  name: string;
+  transpileOptionValue: string;
+}
+
+interface IEmitKind {
+  moduleKind: ts.ModuleKind;
+  scriptTarget: ts.ScriptTarget;
+}
+
+declare module 'typescript' {
+  export const transpileOptionValueCompilerOptions: ReadonlyArray<ITypescriptTranspileOption>;
+  export const notImplementedResolver: unknown;
+  export function getNewLineCharacter(options: ts.CompilerOptions): string;
+}
 
 export async function transpileProjectAsync(
   projectOptions: IProjectOptions,
@@ -32,81 +52,137 @@ export async function transpileProjectAsync(
     projectOptions,
     pluginOptions
   );
-  const {
-    fileNames,
-    options: { outDir, sourceMap }
-  } = tsconfig;
+  const { fileNames: fileNamesFromTsConfig, options: compilerOptions } = tsconfig;
 
-  tsconfig.options.declaration = false;
-  tsconfig.options.emitDeclarationOnly = false;
-  tsconfig.options.importHelpers = true;
-  tsconfig.options.isolatedModules = true;
-  tsconfig.options.importsNotUsedAsValues = ts.ImportsNotUsedAsValues.Error;
+  compilerOptions.importHelpers = true;
+
+  for (const [option, value] of Object.entries(ts.getDefaultCompilerOptions())) {
+    if (compilerOptions[option] === undefined) {
+      compilerOptions[option] = value;
+    }
+  }
+
+  const {
+    outDir = resolve(buildFolder, 'lib').replace(/\\/g, '/'),
+    module,
+    target: rawTarget
+  } = compilerOptions;
+
+  for (const option of ts.transpileOptionValueCompilerOptions) {
+    compilerOptions[option.name] = option.transpileOptionValue;
+  }
+
+  compilerOptions.suppressOutputPathCheck = true;
+
+  const sourceFilePaths: string[] = fileNamesFromTsConfig.filter(
+    (fileName: string) => !fileName.endsWith('.d.ts')
+  );
 
   console.log(`Read Config`, process.uptime());
 
-  const outdir: string = outDir ?? resolve(buildFolder, 'lib');
+  const srcDir: string = resolve(buildFolder, 'src').replace(/\\/g, '/');
 
-  FileSystem.ensureEmptyFolder(outdir);
+  const outputs: PathTree<boolean> = new PathTree();
+
+  const rootPrefixLength: number = `${srcDir}/`.length;
+
+  const moduleKindsToEmit: [string, IEmitKind][] = [
+    [outDir.slice(buildFolder.length), { moduleKind: module!, scriptTarget: rawTarget! }],
+    [`/lib-commonjs`, { moduleKind: ts.ModuleKind.CommonJS, scriptTarget: rawTarget! }],
+    [`/lib-amd`, { moduleKind: ts.ModuleKind.AMD, scriptTarget: rawTarget! }]
+  ];
+
+  for (const srcFilePath of sourceFilePaths) {
+    const relativeSrcFilePath: string = srcFilePath.slice(rootPrefixLength);
+    const extensionIndex: number = relativeSrcFilePath.lastIndexOf('.');
+
+    const relativeJsFilePath: string = `${relativeSrcFilePath.slice(0, extensionIndex)}.js`;
+    for (const [outputPrefix, emitKind] of moduleKindsToEmit) {
+      const jsFilePath: string = `${outputPrefix}/${relativeJsFilePath}`;
+
+      outputs.setItem(jsFilePath, true);
+    }
+  }
+
+  console.log(`Cleaning Outputs`, process.uptime());
+
+  await Async.forEachAsync(moduleKindsToEmit, async ([outPrefix]) => {
+    const dirToClean: string = `${buildFolder}${outPrefix}`;
+    console.log(`Cleaning '${dirToClean}'`);
+    await (fs as any).promises.rm(dirToClean, { force: true, recursive: true });
+  });
+
+  console.log(`Starting Parse`, process.uptime());
+
+  const sourceFileByPath: Map<string, ts.SourceFile> = new Map();
+  const parseTimes: [string, number][] = [];
+
+  const createDirsPromise: Promise<void> = Async.forEachAsync(
+    outputs.iterateParentNodes(),
+    async (dirname: string) => fs.promises.mkdir(`${buildFolder}${dirname}`, { recursive: true }),
+    {
+      concurrency: 20
+    }
+  );
+
+  const parsePromise: Promise<void> = Async.forEachAsync(
+    sourceFilePaths,
+    async (fileName: string) => {
+      const sourceText: string = await FileSystem.readFileAsync(fileName);
+      const start: number = performance.now();
+      const sourceFile: ts.SourceFile = ts.createSourceFile(fileName, sourceText, rawTarget!);
+      sourceFileByPath.set(fileName, sourceFile);
+      const end: number = performance.now();
+      parseTimes.push([fileName, end - start]);
+    },
+    {
+      concurrency: 4
+    }
+  );
+
+  await Promise.all([parsePromise, createDirsPromise]);
 
   console.log(`Starting Transpile`, process.uptime());
 
+  const writeQueue: Queue<[string, string]> = new Queue();
+
+  const newLine: string = ts.getNewLineCharacter(compilerOptions);
+
+  const compilerHost: ts.CompilerHost = {
+    getSourceFile: (fileName: string) => sourceFileByPath.get(fileName),
+    writeFile: (fileName: string, text: string) => {
+      writeQueue.push([fileName, text]);
+    },
+    getDefaultLibFileName: () => 'lib.d.ts',
+    useCaseSensitiveFileNames: () => false,
+    getCanonicalFileName: (fileName: string) => fileName,
+    getCurrentDirectory: () => '',
+    getNewLine: () => newLine,
+    fileExists: (fileName: string) => sourceFileByPath.has(fileName),
+    readFile: () => '',
+    directoryExists: () => true,
+    getDirectories: () => []
+  };
+
+  const program: ts.Program = ts.createProgram(sourceFilePaths, compilerOptions, compilerHost);
+
+  const result: ts.EmitResult = program.emit(undefined, undefined, undefined, undefined, undefined);
+  writeQueue.finish();
+
+  console.log(`Writing Outputs`, process.uptime());
   await Async.forEachAsync(
-    fileNames,
-    async (fileName: string) => {
-      if (fileName.endsWith('.d.ts')) {
-        return;
-      }
-
-      const outputFileNames: readonly string[] = ts.getOutputFileNames(tsconfig, fileName, false);
-
-      let jsFileName: string | undefined;
-      let mapName: string | undefined;
-      for (const outputName of outputFileNames) {
-        if (outputName.endsWith('js')) {
-          jsFileName = outputName;
-        } else if (outputName.endsWith('js.map')) {
-          mapName = outputName;
-        }
-      }
-
-      if (!jsFileName) {
-        throw new Error(`Could not determine output JS file name for '${fileName}'`);
-      }
-      if (sourceMap && !mapName) {
-        throw new Error(`Could not determine output map file name for '${fileName}'`);
-      }
-
-      const input: string = await FileSystem.readFileAsync(fileName);
-
-      const options: ts.TranspileOptions = {
-        compilerOptions: tsconfig.options,
-        fileName,
-        reportDiagnostics: false
-      };
-
-      const result: ts.TranspileOutput = await ts.transpileModule(input, options);
-
-      const promises: Promise<void>[] = [];
-      promises.push(
-        FileSystem.writeFileAsync(jsFileName, result.outputText, {
-          ensureFolderExists: true
-        })
-      );
-      if (mapName && result.sourceMapText) {
-        promises.push(
-          FileSystem.writeFileAsync(mapName, result.sourceMapText, {
-            ensureFolderExists: true
-          })
-        );
-      }
-
-      await Promise.all(promises);
+    writeQueue,
+    async ([fileName, text]) => {
+      return fs.promises.writeFile(fileName, text, { encoding: 'utf8' });
     },
     {
-      concurrency: 8
+      concurrency: 20
     }
   );
+
+  if (result.diagnostics.length) {
+    console.error(ts.formatDiagnosticsWithColorAndContext(result.diagnostics, compilerHost));
+  }
 }
 
 export default plugin;

@@ -31,7 +31,8 @@
   },
   "dependencies": {
     "@rushstack/heft-config-file": "workspace:*",
-    "@rushstack/node-core-library": "workspace:*"
+    "@rushstack/node-core-library": "workspace:*",
+    "@rushstack/rig-package": "workspace:*"
   },
   "devDependencies": {
     "@microsoft/api-extractor": "workspace:*",
