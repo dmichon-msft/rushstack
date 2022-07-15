@@ -191,38 +191,30 @@ export class WebpackPlugin implements IHeftPlugin {
       // Register a plugin to callback after webpack is done with the first compilation
       // so we can move on to post-build
       let firstCompilationDoneCallback: (() => void) | undefined;
-      const originalBeforeCallback: typeof options.onBeforeSetupMiddleware | undefined =
-        options.onBeforeSetupMiddleware;
-      options.onBeforeSetupMiddleware = (server: TWebpackDevServer) => {
-        compiler.hooks.done.tap('heft-webpack-plugin', () => {
-          if (firstCompilationDoneCallback) {
-            firstCompilationDoneCallback();
-            firstCompilationDoneCallback = undefined;
-          }
-        });
-
-        if (originalBeforeCallback) {
-          return originalBeforeCallback(server);
+      const firstCompliationDonePromise: Promise<void> = new Promise<void>(
+        (resolve: () => void, reject: (error: Error) => void) => {
+          firstCompilationDoneCallback = resolve;
         }
-      };
+      );
+
+      compiler.hooks.done.tap('heft-webpack-plugin', () => {
+        if (firstCompilationDoneCallback) {
+          firstCompilationDoneCallback();
+          firstCompilationDoneCallback = undefined;
+        }
+      });
 
       // The webpack-dev-server package has a design flaw, where merely loading its package will set the
       // WEBPACK_DEV_SERVER environment variable -- even if no APIs are accessed. This environment variable
       // causes incorrect behavior if Heft is not running in serve mode. Thus, we need to be careful to call require()
       // only if Heft is in serve mode.
       const WebpackDevServer: typeof TWebpackDevServer = require(WEBPACK_DEV_SERVER_PACKAGE_NAME);
-      // TODO: the WebpackDevServer accepts a third parameter for a logger. We should make
-      // use of that to make logging cleaner
-      const webpackDevServer: TWebpackDevServer = new WebpackDevServer(compiler, options);
-      await new Promise<void>((resolve: () => void, reject: (error: Error) => void) => {
-        firstCompilationDoneCallback = resolve;
 
-        webpackDevServer.listen(options.port!, options.host!, (error: Error | undefined) => {
-          if (error) {
-            reject(error);
-          }
-        });
-      });
+      const webpackDevServer: TWebpackDevServer = new WebpackDevServer(options, compiler);
+      // This promise returns as soon as the server is active, which is
+      await webpackDevServer.start();
+
+      await firstCompliationDonePromise;
     } else {
       if (process.env[WEBPACK_DEV_SERVER_ENV_VAR_NAME]) {
         logger.emitWarning(
