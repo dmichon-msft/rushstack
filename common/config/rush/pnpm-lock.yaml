@@ -1716,6 +1716,23 @@ importers:
       '@types/semver': 7.3.5
       '@types/timsort': 0.3.0
 
+  ../../libraries/orchestrator:
+    specifiers:
+      '@rushstack/eslint-config': workspace:*
+      '@rushstack/heft': workspace:*
+      '@rushstack/heft-node-rig': workspace:*
+      '@types/heft-jest': 1.0.1
+      '@types/node': 12.20.24
+      tapable: 2.2.1
+    dependencies:
+      '@types/node': 12.20.24
+      tapable: 2.2.1
+    devDependencies:
+      '@rushstack/eslint-config': link:../../eslint/eslint-config
+      '@rushstack/heft': link:../../apps/heft
+      '@rushstack/heft-node-rig': link:../../rigs/heft-node-rig
+      '@types/heft-jest': 1.0.1
+
   ../../libraries/package-deps-hash:
     specifiers:
       '@rushstack/eslint-config': workspace:*
