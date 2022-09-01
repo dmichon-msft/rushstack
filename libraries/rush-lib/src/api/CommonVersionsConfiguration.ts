@@ -28,6 +28,16 @@ export declare interface ICommonVersionsJsonVersionMap {
 /**
  * Part of the ICommonVersionsJson structure.
  */
+export declare interface ICommonVersionsJsonInstallableVersionMap {
+  /**
+   * The key is the name of a dependency. The value is a Semantic Version (SemVer) (not a range).
+   */
+  [dependencyName: string]: string;
+}
+
+/**
+ * Part of the ICommonVersionsJson structure.
+ */
 export declare interface ICommonVersionsJsonVersionsMap {
   /**
    * The key is the name of a dependency.  The value is a list of Semantic Versioning (SemVer)
@@ -43,6 +53,8 @@ interface ICommonVersionsJson {
   $schema?: string;
 
   preferredVersions?: ICommonVersionsJsonVersionMap;
+
+  installableVersionSets?: Record<string, ICommonVersionsJsonInstallableVersionMap>;
 
   implicitlyPreferredVersions?: boolean;
 
@@ -63,6 +75,8 @@ export class CommonVersionsConfiguration {
   private _preferredVersions: ProtectableMap<string, string>;
   private _implicitlyPreferredVersions: boolean | undefined;
   private _allowedAlternativeVersions: ProtectableMap<string, string[]>;
+  private _installableVersionSets: ReadonlyMap<string, ReadonlyMap<string, string>>;
+  private _allInstallableVersions: ReadonlyMap<string, ReadonlySet<string>>;
   private _modified: boolean = false;
 
   private constructor(commonVersionsJson: ICommonVersionsJson | undefined, filePath: string) {
@@ -75,6 +89,27 @@ export class CommonVersionsConfiguration {
     } else {
       this._implicitlyPreferredVersions = undefined;
     }
+
+    const installableVersionSets: Map<string, Map<string, string>> = new Map();
+    const allInstallableVersions: Map<string, Set<string>> = new Map();
+
+    const rawInstallableVersionSets: Record<string, ICommonVersionsJsonInstallableVersionMap> | undefined =
+      commonVersionsJson?.installableVersionSets;
+    if (rawInstallableVersionSets) {
+      for (const [versionSetName, versionSet] of Object.entries(rawInstallableVersionSets)) {
+        const versionSetEntries: [string, string][] = Object.entries(versionSet);
+        installableVersionSets.set(versionSetName, new Map(versionSetEntries));
+        for (const [dependency, version] of versionSetEntries) {
+          let installableVersionsOfPackage: Set<string> | undefined = allInstallableVersions.get(dependency);
+          if (!installableVersionsOfPackage) {
+            allInstallableVersions.set(dependency, (installableVersionsOfPackage = new Set()));
+          }
+          installableVersionsOfPackage.add(version);
+        }
+      }
+    }
+    this._installableVersionSets = installableVersionSets;
+    this._allInstallableVersions = allInstallableVersions;
 
     this._allowedAlternativeVersions = new ProtectableMap<string, string[]>({
       onSet: this._onSetAllowedAlternativeVersions.bind(this)
@@ -217,12 +252,25 @@ export class CommonVersionsConfiguration {
   }
 
   /**
+   * Returns the set of packages defined in the "installableVersionSets" field as a map of
+   * packageName to ordered installable version.
+   *
+   * Any package specified in this collection will fail to install if requested at a version that
+   * does not match an entry in its corresponding set.
+   */
+  public get allInstallableVersions(): ReadonlyMap<string, ReadonlySet<string>> {
+    return this._allInstallableVersions;
+  }
+
+  /**
    * Returns preferredVersions.
    */
   public getAllPreferredVersions(): Map<string, string> {
-    const allPreferredVersions: Map<string, string> = new Map<string, string>();
-    MapExtensions.mergeFromMap(allPreferredVersions, this.preferredVersions);
-    return allPreferredVersions;
+    return new Map<string, string>(this.preferredVersions);
+  }
+
+  public getAllInstallableVersions(): ReadonlyMap<string, ReadonlySet<string>> {
+    return this._allInstallableVersions;
   }
 
   private _onSetPreferredVersions(

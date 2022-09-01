@@ -82,20 +82,24 @@ export class PnpmfileConfiguration {
     rushConfiguration: RushConfiguration,
     options?: IPnpmfileShimOptions
   ): IPnpmfileShimSettings {
-    let allPreferredVersions: { [dependencyName: string]: string } = {};
-    let allowedAlternativeVersions: { [dependencyName: string]: readonly string[] } = {};
+    let allPreferredVersions: Record<string, string> = {};
+    let allowedAlternativeVersions: Record<string, readonly string[]> = {};
+    const allInstallableVersions: Record<string, readonly string[]> = {};
     const workspaceVersions: Record<string, string> = {};
 
     // Only workspaces shims in the common versions using pnpmfile
     if ((rushConfiguration.packageManagerOptions as PnpmOptionsConfiguration).useWorkspaces) {
       const commonVersionsConfiguration: CommonVersionsConfiguration = rushConfiguration.getCommonVersions();
       const preferredVersions: Map<string, string> = new Map();
-      MapExtensions.mergeFromMap(preferredVersions, commonVersionsConfiguration.getAllPreferredVersions());
+      MapExtensions.mergeFromMap(preferredVersions, commonVersionsConfiguration.preferredVersions);
       MapExtensions.mergeFromMap(preferredVersions, rushConfiguration.getImplicitlyPreferredVersions());
       allPreferredVersions = MapExtensions.toObject(preferredVersions);
       allowedAlternativeVersions = MapExtensions.toObject(
         commonVersionsConfiguration.allowedAlternativeVersions
       );
+      for (const [dependency, versions] of commonVersionsConfiguration.allInstallableVersions) {
+        allInstallableVersions[dependency] = Array.from(versions);
+      }
 
       for (const project of rushConfiguration.projects) {
         workspaceVersions[project.packageName] = project.packageJson.version;
@@ -105,6 +109,7 @@ export class PnpmfileConfiguration {
     const settings: IPnpmfileShimSettings = {
       allPreferredVersions,
       allowedAlternativeVersions,
+      allInstallableVersions,
       workspaceVersions,
       semverPath: require.resolve('semver')
     };

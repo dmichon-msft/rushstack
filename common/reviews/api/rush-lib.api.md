@@ -97,8 +97,11 @@ export type CloudBuildCacheProviderFactory = (buildCacheJson: IBuildCacheJson) =
 
 // @public
 export class CommonVersionsConfiguration {
+    get allInstallableVersions(): ReadonlyMap<string, ReadonlySet<string>>;
     get allowedAlternativeVersions(): Map<string, ReadonlyArray<string>>;
     get filePath(): string;
+    // (undocumented)
+    getAllInstallableVersions(): ReadonlyMap<string, ReadonlySet<string>>;
     getAllPreferredVersions(): Map<string, string>;
     getPreferredVersionsHash(): string;
     get implicitlyPreferredVersions(): boolean | undefined;

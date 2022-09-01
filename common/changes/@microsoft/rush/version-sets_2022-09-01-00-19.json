@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/rush",
+      "comment": "Add optional property \"installableVersionSets\" to \"common-versions.json\" to aid in efficiently consuming packages from external monorepos.",
+      "type": "none"
+    }
+  ],
+  "packageName": "@microsoft/rush"
+}

@@ -18,6 +18,7 @@ import type { IPnpmfile, IPnpmfileShimSettings, IPnpmfileContext } from './IPnpm
 let settings: IPnpmfileShimSettings;
 let allPreferredVersions: Map<string, string>;
 let allowedAlternativeVersions: Map<string, Set<string>> | undefined;
+let allInstallableVersions: Map<string, ReadonlyArray<string>>;
 let userPnpmfile: IPnpmfile | undefined;
 let semver: typeof TSemver | undefined;
 
@@ -36,6 +37,7 @@ function init(context: IPnpmfileContext | any): IPnpmfileContext {
       originalContext: context
     } as IPnpmfileContext;
   }
+
   if (!settings) {
     // Initialize the settings from file
     if (!context.pnpmfileShimSettings) {
@@ -46,9 +48,11 @@ function init(context: IPnpmfileContext | any): IPnpmfileContext {
     // Reuse the already initialized settings
     context.pnpmfileShimSettings = settings;
   }
+
   if (!allPreferredVersions && settings.allPreferredVersions) {
     allPreferredVersions = new Map(Object.entries(settings.allPreferredVersions));
   }
+
   if (!allowedAlternativeVersions && settings.allowedAlternativeVersions) {
     allowedAlternativeVersions = new Map(
       Object.entries(settings.allowedAlternativeVersions).map(([packageName, versions]) => {
@@ -56,6 +60,13 @@ function init(context: IPnpmfileContext | any): IPnpmfileContext {
       })
     );
   }
+
+  if (!allInstallableVersions) {
+    allInstallableVersions = new Map(
+      settings.allInstallableVersions ? Object.entries(settings.allInstallableVersions) : []
+    );
+  }
+
   // If a userPnpmfilePath is provided, we expect it to exist
   if (!userPnpmfile && settings.userPnpmfilePath) {
     userPnpmfile = require(settings.userPnpmfilePath);
@@ -68,30 +79,91 @@ function init(context: IPnpmfileContext | any): IPnpmfileContext {
   return context as IPnpmfileContext;
 }
 
-// Set the preferred versions on the dependency map. If the version on the map is an allowedAlternativeVersion
-// then skip it. Otherwise, check to ensure that the common version is a subset of the specified version. If
-// it is, then replace the specified version with the preferredVersion
+/**
+ * Set the preferred versions on the dependency map. For each dependency:
+ * 1) Check to see if it is defined in allInstallableVersions.
+ *    a) If it is, then take the first compatible version, or error if no version matches.
+ *    b) If it is not, then if the version is a defined allowedAlternativeVersion, pass through, or constrain to preferredVersion if compatible
+ */
 function setPreferredVersions(dependencies: { [dependencyName: string]: string } | undefined): void {
-  for (const [name, version] of Object.entries(dependencies || {})) {
-    const preferredVersion: string | undefined = allPreferredVersions?.get(name);
-    if (preferredVersion && !allowedAlternativeVersions?.get(name)?.has(version)) {
-      let preferredVersionRange: TSemver.Range | undefined;
-      let versionRange: TSemver.Range | undefined;
-      try {
-        preferredVersionRange = new semver!.Range(preferredVersion);
-        versionRange = new semver!.Range(version);
-      } catch {
-        // Swallow invalid range errors
+  if (!dependencies) {
+    return;
+  }
+
+  for (const [name, version] of Object.entries(dependencies)) {
+    const installableVersions: ReadonlyArray<string> | undefined = allInstallableVersions.get(name);
+    if (installableVersions) {
+      if (!checkAndSetInstallableVersion(dependencies, name, version, installableVersions)) {
+        throw new Error(
+          `Unable to satisfy request for dependency '${name}@${version}'. This repository only allows installation of the following versions of '${name}': ${installableVersions.join(
+            ', '
+          )}`
+        );
       }
-      if (
-        preferredVersionRange &&
-        versionRange &&
-        semver!.subset(preferredVersionRange, versionRange, { includePrerelease: true })
-      ) {
-        dependencies![name] = preferredVersion;
+    } else {
+      const preferredVersion: string | undefined = allPreferredVersions?.get(name);
+      if (preferredVersion && !allowedAlternativeVersions?.get(name)?.has(version)) {
+        const preferredVersionRange: TSemver.Range | undefined = tryParseRange(preferredVersion);
+        const versionRange: TSemver.Range | undefined = tryParseRange(version);
+
+        if (
+          preferredVersionRange &&
+          versionRange &&
+          semver!.subset(preferredVersionRange, versionRange, { includePrerelease: true })
+        ) {
+          dependencies![name] = preferredVersion;
+        }
       }
     }
   }
+}
+
+function tryParseSemVer(version: string): TSemver.SemVer | undefined {
+  try {
+    return new semver!.SemVer(version);
+  } catch {
+    return;
+  }
+}
+
+function tryParseRange(version: string): TSemver.Range | undefined {
+  try {
+    return new semver!.Range(version);
+  } catch {
+    return;
+  }
+}
+
+function checkAndSetInstallableVersion(
+  dependencies: Record<string, string>,
+  name: string,
+  version: string,
+  installableVersions: ReadonlyArray<string>
+): boolean {
+  const versionRange: TSemver.Range | undefined = tryParseRange(version);
+
+  for (const preferredVersionString of installableVersions) {
+    if (version === preferredVersionString) {
+      return true;
+    }
+
+    if (versionRange) {
+      const preferredVersion: TSemver.SemVer | undefined = tryParseSemVer(preferredVersionString);
+      if (!preferredVersion) {
+        throw new Error(`Version specifier '${preferredVersionString}' for '${name}' is not a valid SemVer!`);
+      }
+
+      if (
+        preferredVersion &&
+        semver!.satisfies(preferredVersion, versionRange, { includePrerelease: true })
+      ) {
+        dependencies[name] = preferredVersionString;
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 const pnpmfileShim: IPnpmfile = {
