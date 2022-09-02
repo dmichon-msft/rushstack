@@ -9,7 +9,7 @@ import { PnpmOptionsConfiguration, RushConfiguration } from '../../api/RushConfi
 import { CommonVersionsConfiguration } from '../../api/CommonVersionsConfiguration';
 import * as pnpmfile from './PnpmfileShim';
 
-import type { IPnpmfileContext, IPnpmfileShimSettings } from './IPnpmfile';
+import type { IInstallableVersion, IPnpmfileContext, IPnpmfileShimSettings } from './IPnpmfile';
 
 /**
  * Options used when generating the pnpmfile shim settings file.
@@ -84,7 +84,7 @@ export class PnpmfileConfiguration {
   ): IPnpmfileShimSettings {
     let allPreferredVersions: Record<string, string> = {};
     let allowedAlternativeVersions: Record<string, readonly string[]> = {};
-    const allInstallableVersions: Record<string, readonly string[]> = {};
+    const allInstallableVersions: Record<string, readonly IInstallableVersion[]> = {};
     const workspaceVersions: Record<string, string> = {};
 
     // Only workspaces shims in the common versions using pnpmfile
@@ -98,7 +98,7 @@ export class PnpmfileConfiguration {
         commonVersionsConfiguration.allowedAlternativeVersions
       );
       for (const [dependency, versions] of commonVersionsConfiguration.allInstallableVersions) {
-        allInstallableVersions[dependency] = Array.from(versions);
+        allInstallableVersions[dependency] = versions;
       }
 
       for (const project of rushConfiguration.projects) {

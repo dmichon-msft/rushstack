@@ -21,7 +21,21 @@
       "type": "object",
       "patternProperties": {
         "^[a-z0-9.+]+(?:-[a-z0-9.+]+)*$": {
-          "type": "string"
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "condition": {
+                "type": "string",
+                "description": "A Semantic Versioning (SemVer) Range that, if it intersects with a requested specifier, the version specified in \"version\" should be installed instead."
+              },
+              "version": {
+                "type": "string",
+                "description": "The version of the dependency to install"
+              }
+            },
+            "required": ["condition", "version"]
+          }
         }
       }
     },

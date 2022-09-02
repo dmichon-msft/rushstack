@@ -23,12 +23,17 @@ export interface IPnpmfileShimSettings {
    * The preferred exact versions of all external packages consumed by the workspace, in preference order.
    * For any package that has an entry here, no other package version will be resolved.
    */
-  allInstallableVersions: Record<string, ReadonlyArray<string>>;
+  allInstallableVersions: Record<string, ReadonlyArray<IInstallableVersion>>;
   /**
    * The versions of all packages that are part of the workspace.
    */
   workspaceVersions: Record<string, string>;
   userPnpmfilePath?: string;
+}
+
+export interface IInstallableVersion {
+  condition: string;
+  version: string;
 }
 
 /**

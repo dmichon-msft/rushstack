@@ -13,7 +13,7 @@ import type * as TSemver from 'semver';
 import type { IPackageJson } from '@rushstack/node-core-library';
 
 import type { IPnpmShrinkwrapYaml } from './PnpmShrinkwrapFile';
-import type { IPnpmfile, IPnpmfileShimSettings, IPnpmfileContext } from './IPnpmfile';
+import type { IPnpmfile, IPnpmfileShimSettings, IPnpmfileContext, IInstallableVersion } from './IPnpmfile';
 
 let settings: IPnpmfileShimSettings;
 let allPreferredVersions: Map<string, string>;
@@ -138,26 +138,23 @@ function checkAndSetInstallableVersion(
   dependencies: Record<string, string>,
   name: string,
   version: string,
-  installableVersions: ReadonlyArray<string>
+  installableVersions: ReadonlyArray<IInstallableVersion>
 ): boolean {
   const versionRange: TSemver.Range | undefined = tryParseRange(version);
 
-  for (const preferredVersionString of installableVersions) {
-    if (version === preferredVersionString) {
+  for (const { condition, version } of installableVersions) {
+    if (version === version) {
       return true;
     }
 
     if (versionRange) {
-      const preferredVersion: TSemver.SemVer | undefined = tryParseSemVer(preferredVersionString);
-      if (!preferredVersion) {
-        throw new Error(`Version specifier '${preferredVersionString}' for '${name}' is not a valid SemVer!`);
+      const rangeCondition: TSemver.Range | undefined = tryParseRange(condition);
+      if (!rangeCondition) {
+        throw new Error(`Condition '${condition}' for '${name}' is not a valid SemVer Range!`);
       }
 
-      if (
-        preferredVersion &&
-        semver!.satisfies(preferredVersion, versionRange, { includePrerelease: true })
-      ) {
-        dependencies[name] = preferredVersionString;
+      if (rangeCondition && semver!.intersects(rangeCondition, versionRange, { includePrerelease: true })) {
+        dependencies[name] = version;
         return true;
       }
     }
