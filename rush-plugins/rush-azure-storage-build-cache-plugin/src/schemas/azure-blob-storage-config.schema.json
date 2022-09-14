@@ -30,6 +30,11 @@
       "description": "An optional prefix for cache item blob names."
     },
 
+    "writeConcurrency": {
+      "type": "number",
+      "description": "An optional maximum concurrency for cache writes."
+    },
+
     "isCacheWriteAllowed": {
       "type": "boolean",
       "description": "If set to true, allow writing to the cache. Defaults to false."

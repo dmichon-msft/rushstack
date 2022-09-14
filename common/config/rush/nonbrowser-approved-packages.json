@@ -331,6 +331,10 @@
       "allowedCategories": [ "libraries" ]
     },
     {
+      "name": "async",
+      "allowedCategories": [ "libraries" ]
+    },
+    {
       "name": "autoprefixer",
       "allowedCategories": [ "libraries", "tests" ]
     },

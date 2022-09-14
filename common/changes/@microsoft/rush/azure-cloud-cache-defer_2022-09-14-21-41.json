@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/rush",
+      "comment": "Don't block downstream operations on Azure cache writes.",
+      "type": "none"
+    }
+  ],
+  "packageName": "@microsoft/rush"
+}

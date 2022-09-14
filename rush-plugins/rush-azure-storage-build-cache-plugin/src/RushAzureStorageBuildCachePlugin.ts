@@ -2,7 +2,16 @@
 // See LICENSE in the project root for license information.
 
 import { Import } from '@rushstack/node-core-library';
-import type { IRushPlugin, RushSession, RushConfiguration } from '@rushstack/rush-sdk';
+import type {
+  IRushPlugin,
+  RushSession,
+  RushConfiguration,
+  IPhasedCommand,
+  IExecutionResult,
+  ICreateOperationsContext,
+  ILogger
+} from '@rushstack/rush-sdk';
+
 import type { AzureEnvironmentName } from './AzureAuthenticationBase';
 
 const AzureStorageBuildCacheProviderModule: typeof import('./AzureStorageBuildCacheProvider') = Import.lazy(
@@ -37,6 +46,11 @@ interface IAzureBlobStorageConfigurationJson {
   blobPrefix?: string;
 
   /**
+   * An optional maximum concurrency for cache writes.
+   */
+  concurrency?: number;
+
+  /**
    * If set to true, allow writing to the cache. Defaults to false.
    */
   isCacheWriteAllowed?: boolean;
@@ -49,20 +63,39 @@ export class RushAzureStorageBuildCachePlugin implements IRushPlugin {
   public pluginName: string = PLUGIN_NAME;
 
   public apply(rushSession: RushSession, rushConfig: RushConfiguration): void {
-    rushSession.hooks.initialize.tap(PLUGIN_NAME, () => {
+    rushSession.hooks.runAnyPhasedCommand.tap(PLUGIN_NAME, (command: IPhasedCommand) => {
+      let buildCacheProvider:
+        | typeof AzureStorageBuildCacheProviderModule.AzureStorageBuildCacheProvider.prototype
+        | undefined;
+
       rushSession.registerCloudBuildCacheProviderFactory('azure-blob-storage', (buildCacheConfig) => {
         type IBuildCache = typeof buildCacheConfig & {
           azureBlobStorageConfiguration: IAzureBlobStorageConfigurationJson;
         };
         const { azureBlobStorageConfiguration } = buildCacheConfig as IBuildCache;
-        return new AzureStorageBuildCacheProviderModule.AzureStorageBuildCacheProvider({
+        buildCacheProvider = new AzureStorageBuildCacheProviderModule.AzureStorageBuildCacheProvider({
           storageAccountName: azureBlobStorageConfiguration.storageAccountName,
           storageContainerName: azureBlobStorageConfiguration.storageContainerName,
           azureEnvironment: azureBlobStorageConfiguration.azureEnvironment,
           blobPrefix: azureBlobStorageConfiguration.blobPrefix,
+          concurrency: azureBlobStorageConfiguration.concurrency,
           isCacheWriteAllowed: !!azureBlobStorageConfiguration.isCacheWriteAllowed
         });
+        return buildCacheProvider;
       });
+
+      command.hooks.afterExecuteOperations.tapPromise(
+        PLUGIN_NAME,
+        async (result: IExecutionResult, context: ICreateOperationsContext) => {
+          if (!buildCacheProvider) {
+            return;
+          }
+
+          const logger: ILogger = rushSession.getLogger(PLUGIN_NAME);
+
+          await buildCacheProvider.flushWritesAsync(logger);
+        }
+      );
     });
   }
 }
