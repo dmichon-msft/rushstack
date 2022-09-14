@@ -1,14 +1,23 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import type { ITerminal } from '@rushstack/node-core-library';
+import { ITerminal, Sort } from '@rushstack/node-core-library';
 import {
   ICloudBuildCacheProvider,
   EnvironmentVariableNames,
   RushConstants,
-  EnvironmentConfiguration
+  EnvironmentConfiguration,
+  ILogger
 } from '@rushstack/rush-sdk';
-import { BlobClient, BlobServiceClient, BlockBlobClient, ContainerClient } from '@azure/storage-blob';
+import {
+  BlobClient,
+  BlobServiceClient,
+  BlockBlobClient,
+  ContainerClient,
+  StorageRetryPolicyType
+} from '@azure/storage-blob';
+
+import { QueueObject, queue } from 'async';
 
 import {
   AzureAuthorityHosts,
@@ -18,6 +27,7 @@ import {
 
 export interface IAzureStorageBuildCacheProviderOptions extends IAzureStorageAuthenticationOptions {
   blobPrefix?: string;
+  concurrency?: number;
 }
 
 interface IBlobError extends Error {
@@ -31,12 +41,26 @@ interface IBlobError extends Error {
   };
 }
 
+interface ICacheWriteRequest {
+  buffer: Buffer;
+  cacheId: string;
+}
+
+interface ICacheWriteResult {
+  cacheId: string;
+  error?: Error | undefined;
+  warnings?: Error[] | undefined;
+  verbose?: string | undefined;
+}
+
 export class AzureStorageBuildCacheProvider
   extends AzureStorageAuthentication
   implements ICloudBuildCacheProvider
 {
   private readonly _blobPrefix: string | undefined;
   private readonly _environmentCredential: string | undefined;
+  private readonly _writeQueue: QueueObject<ICacheWriteRequest>;
+  private readonly _writeResults: ICacheWriteResult[] = [];
 
   public get isCacheWriteAllowed(): boolean {
     return EnvironmentConfiguration.buildCacheWriteAllowed ?? this._isCacheWriteAllowedByConfiguration;
@@ -49,6 +73,16 @@ export class AzureStorageBuildCacheProvider
 
     this._blobPrefix = options.blobPrefix;
     this._environmentCredential = EnvironmentConfiguration.buildCacheCredential;
+
+    this._writeQueue = queue(async (task: ICacheWriteRequest) => {
+      let result: ICacheWriteResult | undefined;
+      try {
+        result = await this._writeCacheEntryInternal(task);
+      } catch (err) {
+        result = { cacheId: task.cacheId, error: err as Error };
+      }
+      this._writeResults.push(result);
+    }, options.concurrency);
 
     if (!(this._azureEnvironment in AzureAuthorityHosts)) {
       throw new Error(
@@ -130,49 +164,36 @@ export class AzureStorageBuildCacheProvider
       return false;
     }
 
-    const blobClient: BlobClient = await this._getBlobClientForCacheIdAsync(cacheId);
-    const blockBlobClient: BlockBlobClient = blobClient.getBlockBlobClient();
-    let blobAlreadyExists: boolean = false;
+    this._writeQueue.push(
+      {
+        cacheId,
+        buffer: entryStream
+      },
+      noop
+    );
 
-    try {
-      blobAlreadyExists = await blockBlobClient.exists();
-    } catch (err) {
-      const e: IBlobError = err as IBlobError;
+    return true;
+  }
 
-      // If RUSH_BUILD_CACHE_CREDENTIAL is set but is corrupted or has been rotated
-      // in Azure Portal, or the user's own cached credentials have been corrupted or
-      // invalidated, we'll print the error and continue (this way we don't fail the
-      // actual rush build).
-      const errorMessage: string =
-        'Error checking if cache entry exists in Azure Storage: ' +
-        [e.name, e.message, e.response?.status, e.response?.parsedHeaders?.errorCode]
-          .filter((piece: string | undefined) => piece)
-          .join(' ');
+  public async flushWritesAsync(logger: ILogger): Promise<void> {
+    await this._writeQueue.drain();
 
-      terminal.writeWarningLine(errorMessage);
-    }
+    const results: ICacheWriteResult[] = this._writeResults.splice(0);
 
-    if (blobAlreadyExists) {
-      terminal.writeVerboseLine('Build cache entry blob already exists.');
-      return true;
-    } else {
-      try {
-        await blockBlobClient.upload(entryStream, entryStream.length);
-        return true;
-      } catch (e) {
-        if ((e as IBlobError).statusCode === 409 /* conflict */) {
-          // If something else has written to the blob at the same time,
-          // it's probably a concurrent process that is attempting to write
-          // the same cache entry. That is an effective success.
-          terminal.writeVerboseLine(
-            'Azure Storage returned status 409 (conflict). The cache entry has ' +
-              `probably already been set by another builder. Code: "${(e as IBlobError).code}".`
-          );
-          return true;
-        } else {
-          terminal.writeWarningLine(`Error uploading cache entry to Azure Storage: ${e}`);
-          return false;
+    Sort.sortBy(results, (result: ICacheWriteResult) => result.cacheId);
+
+    for (const result of results) {
+      if (result.error) {
+        logger.emitError(result.error);
+        continue;
+      } else if (result.warnings) {
+        for (const warning of result.warnings) {
+          logger.emitWarning(warning);
         }
+      }
+
+      if (result.verbose) {
+        logger.terminal.writeVerboseLine(result.verbose);
       }
     }
   }
@@ -193,7 +214,15 @@ export class AzureStorageBuildCacheProvider
       let blobServiceClient: BlobServiceClient;
       if (sasString) {
         const connectionString: string = this._getConnectionString(sasString);
-        blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+        blobServiceClient = BlobServiceClient.fromConnectionString(connectionString, {
+          retryOptions: {
+            maxTries: 10,
+            retryDelayInMs: 1000,
+            maxRetryDelayInMs: 10000,
+            tryTimeoutInMs: 120000,
+            retryPolicyType: StorageRetryPolicyType.FIXED
+          }
+        });
       } else if (!this._isCacheWriteAllowedByConfiguration) {
         // If cache write isn't allowed and we don't have a credential, assume the blob supports anonymous read
         blobServiceClient = new BlobServiceClient(this._storageAccountUrl);
@@ -212,6 +241,60 @@ export class AzureStorageBuildCacheProvider
     return this._containerClient;
   }
 
+  private async _writeCacheEntryInternal(task: ICacheWriteRequest): Promise<ICacheWriteResult> {
+    const { buffer, cacheId } = task;
+
+    const blobClient: BlobClient = await this._getBlobClientForCacheIdAsync(cacheId);
+    const blockBlobClient: BlockBlobClient = blobClient.getBlockBlobClient();
+    let blobAlreadyExists: boolean = false;
+
+    let warnings: Error[] | undefined;
+
+    try {
+      blobAlreadyExists = await blockBlobClient.exists();
+    } catch (err) {
+      const e: IBlobError = err as IBlobError;
+
+      // If RUSH_BUILD_CACHE_CREDENTIAL is set but is corrupted or has been rotated
+      // in Azure Portal, or the user's own cached credentials have been corrupted or
+      // invalidated, we'll print the error and continue (this way we don't fail the
+      // actual rush build).
+      const errorMessage: string =
+        `Error checking if cache entry ${cacheId} exists in Azure Storage: ` +
+        [e.name, e.message, e.response?.status, e.response?.parsedHeaders?.errorCode]
+          .filter((piece: string | undefined) => piece)
+          .join(' ');
+
+      warnings = [new Error(errorMessage)];
+    }
+
+    if (blobAlreadyExists) {
+      return { cacheId, warnings };
+    } else {
+      try {
+        await blockBlobClient.upload(buffer, buffer.length);
+        return { cacheId, warnings };
+      } catch (e) {
+        if ((e as IBlobError).statusCode === 409 /* conflict */) {
+          // If something else has written to the blob at the same time,
+          // it's probably a concurrent process that is attempting to write
+          // the same cache entry. That is an effective success.
+          const verbose: string =
+            `Azure Storage returned status 409 (conflict). The cache entry "${cacheId}" has ` +
+            `probably already been set by another builder. Code: "${(e as IBlobError).code}".`;
+
+          return { cacheId, warnings, verbose };
+        } else {
+          if (!warnings) {
+            warnings = [];
+          }
+          warnings.push(new Error(`Error uploading cache entry "${cacheId}" to Azure Storage: ${e}`));
+          return { cacheId, warnings };
+        }
+      }
+    }
+  }
+
   private _getConnectionString(sasString: string | undefined): string {
     const blobEndpoint: string = `BlobEndpoint=${this._storageAccountUrl}`;
     if (sasString) {
@@ -221,4 +304,8 @@ export class AzureStorageBuildCacheProvider
       return blobEndpoint;
     }
   }
+}
+
+function noop(): void {
+  // Do nothing
 }

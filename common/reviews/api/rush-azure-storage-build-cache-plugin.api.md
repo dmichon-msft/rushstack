@@ -4,10 +4,10 @@
 
 ```ts
 
-import type { IRushPlugin } from '@rushstack/rush-sdk';
+import { IRushPlugin } from '@rushstack/rush-sdk';
 import type { ITerminal } from '@rushstack/node-core-library';
-import type { RushConfiguration } from '@rushstack/rush-sdk';
-import type { RushSession } from '@rushstack/rush-sdk';
+import { RushConfiguration } from '@rushstack/rush-sdk';
+import { RushSession } from '@rushstack/rush-sdk';
 
 // @public (undocumented)
 export enum AzureAuthorityHosts {
