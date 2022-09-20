@@ -5,7 +5,7 @@ import * as os from 'os';
 import colors from 'colors/safe';
 import type { AsyncSeriesHook } from 'tapable';
 
-import { AlreadyReportedError, InternalError, Terminal } from '@rushstack/node-core-library';
+import { AlreadyReportedError, InternalError, ITerminal, Terminal } from '@rushstack/node-core-library';
 import {
   CommandLineFlagParameter,
   CommandLineParameter,
@@ -60,7 +60,7 @@ interface IRunPhasesOptions {
   initialCreateOperationsContext: ICreateOperationsContext;
   executionManagerOptions: IOperationExecutionManagerOptions;
   stopwatch: Stopwatch;
-  terminal: Terminal;
+  terminal: ITerminal;
 }
 
 interface IExecutionOperationsOptions {
@@ -69,7 +69,7 @@ interface IExecutionOperationsOptions {
   ignoreHooks: boolean;
   operations: Set<Operation>;
   stopwatch: Stopwatch;
-  terminal: Terminal;
+  terminal: ITerminal;
 }
 
 interface IPhasedCommandTelemetry {
@@ -108,15 +108,16 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
   private readonly _alwaysWatch: boolean;
   private readonly _alwaysInstall: boolean | undefined;
   private readonly _knownPhases: ReadonlyMap<string, IPhase>;
+  private readonly _terminal: ITerminal;
 
-  private _changedProjectsOnly!: CommandLineFlagParameter;
-  private _selectionParameters!: SelectionParameterSet;
-  private _verboseParameter!: CommandLineFlagParameter;
-  private _parallelismParameter: CommandLineStringParameter | undefined;
-  private _ignoreHooksParameter!: CommandLineFlagParameter;
-  private _watchParameter: CommandLineFlagParameter | undefined;
-  private _timelineParameter: CommandLineFlagParameter | undefined;
-  private _installParameter: CommandLineFlagParameter | undefined;
+  private readonly _changedProjectsOnly: CommandLineFlagParameter | undefined;
+  private readonly _selectionParameters: SelectionParameterSet;
+  private readonly _verboseParameter: CommandLineFlagParameter;
+  private readonly _parallelismParameter: CommandLineStringParameter | undefined;
+  private readonly _ignoreHooksParameter: CommandLineFlagParameter;
+  private readonly _watchParameter: CommandLineFlagParameter | undefined;
+  private readonly _timelineParameter: CommandLineFlagParameter | undefined;
+  private readonly _installParameter: CommandLineFlagParameter | undefined;
 
   public constructor(options: IPhasedScriptActionOptions) {
     super(options);
@@ -132,10 +133,101 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
 
     this.hooks = new PhasedCommandHooks();
 
+    const terminal: Terminal = new Terminal(this.rushSession.terminalProvider);
+    this._terminal = terminal;
+
     // Generates the default operation graph
     new PhasedOperationPlugin().apply(this.hooks);
     // Applies the Shell Operation Runner to selected operations
     new ShellOperationRunnerPlugin().apply(this.hooks);
+
+    if (this._enableParallelism) {
+      this._parallelismParameter = this.defineStringParameter({
+        parameterLongName: '--parallelism',
+        parameterShortName: '-p',
+        argumentName: 'COUNT',
+        environmentVariable: EnvironmentVariableNames.RUSH_PARALLELISM,
+        description:
+          'Specifies the maximum number of concurrent processes to launch during a build.' +
+          ' The COUNT should be a positive integer, a percentage value (eg. "50%%") or the word "max"' +
+          ' to specify a count that is equal to the number of CPU cores. If this parameter is omitted,' +
+          ' then the default value depends on the operating system and number of CPU cores.'
+      });
+      this._timelineParameter = this.defineFlagParameter({
+        parameterLongName: '--timeline',
+        description:
+          'After the build is complete, print additional statistics and CPU usage information,' +
+          ' including an ASCII chart of the start and stop times for each operation.'
+      });
+    }
+
+    this._selectionParameters = new SelectionParameterSet(this.rushConfiguration, this, {
+      // Include lockfile processing since this expands the selection, and we need to select
+      // at least the same projects selected with the same query to "rush build"
+      includeExternalDependencies: true,
+      // Enable filtering to reduce evaluation cost
+      enableFiltering: true
+    });
+
+    this._verboseParameter = this.defineFlagParameter({
+      parameterLongName: '--verbose',
+      parameterShortName: '-v',
+      description: 'Display the logs during the build, rather than just displaying the build status summary'
+    });
+
+    if (this._isIncrementalBuildAllowed) {
+      this._changedProjectsOnly = this.defineFlagParameter({
+        parameterLongName: '--changed-projects-only',
+        parameterShortName: '-c',
+        description:
+          'Normally the incremental build logic will rebuild changed projects as well as' +
+          ' any projects that directly or indirectly depend on a changed project. Specify "--changed-projects-only"' +
+          ' to ignore dependent projects, only rebuilding those projects whose files were changed.' +
+          ' Note that this parameter is "unsafe"; it is up to the developer to ensure that the ignored projects' +
+          ' are okay to ignore.'
+      });
+    }
+
+    this._ignoreHooksParameter = this.defineFlagParameter({
+      parameterLongName: '--ignore-hooks',
+      description: `Skips execution of the "eventHooks" scripts defined in rush.json. Make sure you know what you are skipping.`
+    });
+
+    if (this._watchPhases.size > 0 && !this._alwaysWatch) {
+      // Only define the parameter if it has an effect.
+      this._watchParameter = this.defineFlagParameter({
+        parameterLongName: '--watch',
+        description: `Starts a file watcher after initial execution finishes. Will run the following phases on affected projects: ${Array.from(
+          this._watchPhases,
+          (phase: IPhase) => phase.name
+        ).join(', ')}`
+      });
+    }
+
+    // If `this._alwaysInstall === undefined`, Rush does not define the parameter
+    // but a repository may still define a custom parameter with the same name.
+    if (this._alwaysInstall === false) {
+      this._installParameter = this.defineFlagParameter({
+        parameterLongName: '--install',
+        description:
+          'Normally a phased command expects "rush install" to have been manually run first. If this flag is specified, ' +
+          'Rush will automatically perform an install before processing the current command.'
+      });
+    }
+
+    this.defineScriptParameters();
+
+    for (const [{ associatedPhases }, tsCommandLineParameter] of this.customParameters) {
+      if (associatedPhases) {
+        for (const phaseName of associatedPhases) {
+          const phase: IPhase | undefined = this._knownPhases.get(phaseName);
+          if (!phase) {
+            throw new InternalError(`Could not find a phase matching ${phaseName}.`);
+          }
+          phase.associatedParameters.add(tsCommandLineParameter);
+        }
+      }
+    }
   }
 
   public async runAsync(): Promise<void> {
@@ -162,10 +254,58 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
     }
 
     this._doBeforeTask();
+    const numberOfCores: number = os.cpus().length;
+
+    // if this is parallelizable, then use the value from the flag (undefined or a number),
+    // if parallelism is not enabled, then restrict to 1 core
+    const rawParallelism: string | undefined = this._enableParallelism
+      ? this._parallelismParameter?.value
+      : '1';
+    let parallelism: number;
+
+    if (rawParallelism) {
+      if (rawParallelism === 'max') {
+        parallelism = numberOfCores;
+      } else {
+        const parallelismAsNumber: number = Number(rawParallelism);
+
+        if (typeof rawParallelism === 'string' && rawParallelism.trim().endsWith('%')) {
+          const parsedPercentage: number = Number(rawParallelism.trim().replace(/\%$/, ''));
+
+          if (parsedPercentage <= 0 || parsedPercentage > 100) {
+            throw new Error(
+              `Invalid percentage value of '${rawParallelism}', value cannot be less than '0%' or more than '100%'`
+            );
+          }
+
+          const workers: number = Math.floor((parsedPercentage / 100) * numberOfCores);
+          parallelism = Math.max(workers, 1);
+        } else if (!isNaN(parallelismAsNumber)) {
+          parallelism = Math.max(parallelismAsNumber, 1);
+        } else {
+          throw new Error(
+            `Invalid parallelism value of '${rawParallelism}', expected a number, a percentage, or 'max'`
+          );
+        }
+      }
+    } else {
+      // If an explicit parallelism number wasn't provided, then choose a sensible
+      // default.
+      if (os.platform() === 'win32') {
+        // On desktop Windows, some people have complained that their system becomes
+        // sluggish if Rush is using all the CPU cores.  Leave one thread for
+        // other operations. For CI environments, you can use the "max" argument to use all available cores.
+        parallelism = Math.max(numberOfCores - 1, 1);
+      } else {
+        // Unix-like operating systems have more balanced scheduling, so default
+        // to the number of CPU cores
+        parallelism = numberOfCores;
+      }
+    }
+
+    const terminal: ITerminal = this._terminal;
 
     const stopwatch: Stopwatch = Stopwatch.start();
-
-    const terminal: Terminal = new Terminal(this.rushSession.terminalProvider);
 
     const showTimeline: boolean = this._timelineParameter ? this._timelineParameter.value : false;
     if (showTimeline) {
@@ -192,11 +332,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
 
     const isQuietMode: boolean = !this._verboseParameter.value;
 
-    // if this is parallelizable, then use the value from the flag (undefined or a number),
-    // if parallelism is not enabled, then restrict to 1 core
-    const parallelism: string | undefined = this._enableParallelism ? this._parallelismParameter!.value : '1';
-
-    const changedProjectsOnly: boolean = this._isIncrementalBuildAllowed && this._changedProjectsOnly.value;
+    const changedProjectsOnly: boolean = !!this._changedProjectsOnly?.value;
 
     let buildCacheConfiguration: BuildCacheConfiguration | undefined;
     if (!this._disableBuildCache) {
@@ -385,93 +521,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
   }
 
   protected onDefineParameters(): void {
-    if (this._enableParallelism) {
-      this._parallelismParameter = this.defineStringParameter({
-        parameterLongName: '--parallelism',
-        parameterShortName: '-p',
-        argumentName: 'COUNT',
-        environmentVariable: EnvironmentVariableNames.RUSH_PARALLELISM,
-        description:
-          'Specifies the maximum number of concurrent processes to launch during a build.' +
-          ' The COUNT should be a positive integer, a percentage value (eg. "50%%") or the word "max"' +
-          ' to specify a count that is equal to the number of CPU cores. If this parameter is omitted,' +
-          ' then the default value depends on the operating system and number of CPU cores.'
-      });
-      this._timelineParameter = this.defineFlagParameter({
-        parameterLongName: '--timeline',
-        description:
-          'After the build is complete, print additional statistics and CPU usage information,' +
-          ' including an ASCII chart of the start and stop times for each operation.'
-      });
-    }
-
-    this._selectionParameters = new SelectionParameterSet(this.rushConfiguration, this, {
-      // Include lockfile processing since this expands the selection, and we need to select
-      // at least the same projects selected with the same query to "rush build"
-      includeExternalDependencies: true,
-      // Enable filtering to reduce evaluation cost
-      enableFiltering: true
-    });
-
-    this._verboseParameter = this.defineFlagParameter({
-      parameterLongName: '--verbose',
-      parameterShortName: '-v',
-      description: 'Display the logs during the build, rather than just displaying the build status summary'
-    });
-
-    if (this._isIncrementalBuildAllowed) {
-      this._changedProjectsOnly = this.defineFlagParameter({
-        parameterLongName: '--changed-projects-only',
-        parameterShortName: '-c',
-        description:
-          'Normally the incremental build logic will rebuild changed projects as well as' +
-          ' any projects that directly or indirectly depend on a changed project. Specify "--changed-projects-only"' +
-          ' to ignore dependent projects, only rebuilding those projects whose files were changed.' +
-          ' Note that this parameter is "unsafe"; it is up to the developer to ensure that the ignored projects' +
-          ' are okay to ignore.'
-      });
-    }
-
-    this._ignoreHooksParameter = this.defineFlagParameter({
-      parameterLongName: '--ignore-hooks',
-      description: `Skips execution of the "eventHooks" scripts defined in rush.json. Make sure you know what you are skipping.`
-    });
-
-    if (this._watchPhases.size > 0 && !this._alwaysWatch) {
-      // Only define the parameter if it has an effect.
-      this._watchParameter = this.defineFlagParameter({
-        parameterLongName: '--watch',
-        description: `Starts a file watcher after initial execution finishes. Will run the following phases on affected projects: ${Array.from(
-          this._watchPhases,
-          (phase: IPhase) => phase.name
-        ).join(', ')}`
-      });
-    }
-
-    // If `this._alwaysInstall === undefined`, Rush does not define the parameter
-    // but a repository may still define a custom parameter with the same name.
-    if (this._alwaysInstall === false) {
-      this._installParameter = this.defineFlagParameter({
-        parameterLongName: '--install',
-        description:
-          'Normally a phased command expects "rush install" to have been manually run first. If this flag is specified, ' +
-          'Rush will automatically perform an install before processing the current command.'
-      });
-    }
-
-    this.defineScriptParameters();
-
-    for (const [{ associatedPhases }, tsCommandLineParameter] of this.customParameters) {
-      if (associatedPhases) {
-        for (const phaseName of associatedPhases) {
-          const phase: IPhase | undefined = this._knownPhases.get(phaseName);
-          if (!phase) {
-            throw new InternalError(`Could not find a phase matching ${phaseName}.`);
-          }
-          phase.associatedParameters.add(tsCommandLineParameter);
-        }
-      }
-    }
+    // Handled in constructor
   }
 
   /**

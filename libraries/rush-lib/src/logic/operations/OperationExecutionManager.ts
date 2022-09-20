@@ -16,7 +16,7 @@ import { IExecutionResult } from './IOperationExecutionResult';
 export interface IOperationExecutionManagerOptions {
   quietMode: boolean;
   debugMode: boolean;
-  parallelism: string | undefined;
+  parallelism: number;
   changedProjectsOnly: boolean;
   destination?: TerminalWritable;
 }
@@ -57,6 +57,7 @@ export class OperationExecutionManager {
     this._hasAnyFailures = false;
     this._hasAnyNonAllowedWarnings = false;
     this._changedProjectsOnly = changedProjectsOnly;
+    this._parallelism = parallelism;
 
     // TERMINAL PIPELINE:
     //
@@ -96,61 +97,6 @@ export class OperationExecutionManager {
       }
     }
     this._totalOperations = totalOperations;
-
-    for (const [operation, consumer] of executionRecords) {
-      for (const dependency of operation.dependencies) {
-        const dependencyRecord: OperationExecutionRecord | undefined = executionRecords.get(dependency);
-        if (!dependencyRecord) {
-          throw new Error(
-            `Operation "${consumer.name}" declares a dependency on operation "${dependency.name}" that is not in the set of operations to execute.`
-          );
-        }
-        consumer.dependencies.add(dependencyRecord);
-        dependencyRecord.consumers.add(consumer);
-      }
-    }
-
-    const numberOfCores: number = os.cpus().length;
-
-    if (parallelism) {
-      if (parallelism === 'max') {
-        this._parallelism = numberOfCores;
-      } else {
-        const parallelismAsNumber: number = Number(parallelism);
-
-        if (typeof parallelism === 'string' && parallelism.trim().endsWith('%')) {
-          const parsedPercentage: number = Number(parallelism.trim().replace(/\%$/, ''));
-
-          if (parsedPercentage <= 0 || parsedPercentage > 100) {
-            throw new Error(
-              `Invalid percentage value of '${parallelism}', value cannot be less than '0%' or more than '100%'`
-            );
-          }
-
-          const workers: number = Math.floor((parsedPercentage / 100) * numberOfCores);
-          this._parallelism = Math.max(workers, 1);
-        } else if (!isNaN(parallelismAsNumber)) {
-          this._parallelism = Math.max(parallelismAsNumber, 1);
-        } else {
-          throw new Error(
-            `Invalid parallelism value of '${parallelism}', expected a number, a percentage, or 'max'`
-          );
-        }
-      }
-    } else {
-      // If an explicit parallelism number wasn't provided, then choose a sensible
-      // default.
-      if (os.platform() === 'win32') {
-        // On desktop Windows, some people have complained that their system becomes
-        // sluggish if Rush is using all the CPU cores.  Leave one thread for
-        // other operations. For CI environments, you can use the "max" argument to use all available cores.
-        this._parallelism = Math.max(numberOfCores - 1, 1);
-      } else {
-        // Unix-like operating systems have more balanced scheduling, so default
-        // to the number of CPU cores
-        this._parallelism = numberOfCores;
-      }
-    }
   }
 
   private _streamCollator_onWriterActive = (writer: CollatedWriter | undefined): void => {
