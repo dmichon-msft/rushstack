@@ -137,7 +137,7 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
     this._terminal = terminal;
 
     // Generates the default operation graph
-    new PhasedOperationPlugin().apply(this.hooks);
+    new PhasedOperationPlugin(terminal).apply(this.hooks);
     // Applies the Shell Operation Runner to selected operations
     new ShellOperationRunnerPlugin().apply(this.hooks);
 
