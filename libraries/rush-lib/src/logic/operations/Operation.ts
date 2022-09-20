@@ -1,4 +1,4 @@
-﻿// Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
+// Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
 import { RushConfigurationProject } from '../../api/RushConfigurationProject';
@@ -54,6 +54,16 @@ export class Operation {
    * A set of all dependencies which must be executed before this operation is complete.
    */
   public readonly dependencies: ReadonlySet<Operation> = new Set<Operation>();
+
+  /**
+   * If specified, disable caching for this operation
+   */
+  public disableCache: boolean = false;
+
+  /**
+   * The list of folders emitted by this operation, relative to the project root.
+   */
+  public outputFolderNames: string[] | undefined;
 
   /**
    * When the scheduler is ready to process this `Operation`, the `runner` implements the actual work of

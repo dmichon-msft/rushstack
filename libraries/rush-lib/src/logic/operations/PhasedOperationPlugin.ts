@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
+import { Async, ITerminal } from '@rushstack/node-core-library';
+
 import type { RushConfigurationProject } from '../../api/RushConfigurationProject';
 import type { IPhase } from '../../api/CommandLineConfiguration';
 
@@ -12,6 +14,7 @@ import type {
   IPhasedCommandPlugin,
   PhasedCommandHooks
 } from '../../pluginFramework/PhasedCommandHooks';
+import { IOperationSettings, RushProjectConfiguration } from '../../api/RushProjectConfiguration';
 
 const PLUGIN_NAME: 'PhasedOperationPlugin' = 'PhasedOperationPlugin';
 
@@ -20,19 +23,51 @@ const PLUGIN_NAME: 'PhasedOperationPlugin' = 'PhasedOperationPlugin';
  * from the set of selected projects and phases.
  */
 export class PhasedOperationPlugin implements IPhasedCommandPlugin {
+  private readonly _terminal: ITerminal;
+
+  public constructor(terminal: ITerminal) {
+    this._terminal = terminal;
+  }
+
   public apply(hooks: PhasedCommandHooks): void {
-    hooks.createOperations.tap(PLUGIN_NAME, createOperations);
+    hooks.createOperations.tapPromise(
+      PLUGIN_NAME,
+      async (operations: Set<Operation>, context: ICreateOperationsContext) => {
+        return createOperationsAsync(operations, context, this._terminal);
+      }
+    );
   }
 }
 
-function createOperations(
+async function createOperationsAsync(
   existingOperations: Set<Operation>,
-  context: ICreateOperationsContext
-): Set<Operation> {
+  context: ICreateOperationsContext,
+  terminal: ITerminal
+): Promise<Set<Operation>> {
   const { projectsInUnknownState: changedProjects, phaseSelection, projectSelection } = context;
   const operationsWithWork: Set<Operation> = new Set();
 
   const operations: Map<string, Operation> = new Map();
+
+  const rushProjectConfigurations: Map<RushConfigurationProject, RushProjectConfiguration | false> =
+    new Map();
+
+  terminal.writeVerboseLine(`Loading and validating rush-project.json files...`);
+  Async.forEachAsync(
+    projectSelection,
+    async (project: RushConfigurationProject) => {
+      const config: RushProjectConfiguration | undefined =
+        await RushProjectConfiguration.tryLoadForProjectAsync(project, terminal);
+      if (config) {
+        config.validatePhaseConfiguration(phaseSelection, terminal);
+      }
+      rushProjectConfigurations.set(project, config || false);
+    },
+    {
+      concurrency: 10
+    }
+  );
+  terminal.writeVerboseLine(`Done.`);
 
   // Create tasks for selected phases and projects
   for (const phase of phaseSelection) {
@@ -67,10 +102,22 @@ function createOperations(
     const key: string = getOperationKey(phase, project);
     let operation: Operation | undefined = operations.get(key);
     if (!operation) {
+      const projectConfiguration: RushProjectConfiguration | false | undefined =
+        rushProjectConfigurations.get(project);
+
       operation = new Operation({
         project,
         phase
       });
+
+      if (projectConfiguration) {
+        const operationSettings: Readonly<IOperationSettings> | undefined =
+          projectConfiguration.operationSettingsByOperationName.get(phase.name);
+        operation.outputFolderNames = operationSettings?.outputFolderNames;
+        operation.disableCache =
+          operationSettings?.disableBuildCacheForOperation ||
+          projectConfiguration.disableBuildCacheForProject;
+      }
 
       if (!phaseSelection.has(phase) || !projectSelection.has(project)) {
         // Not in scope. Mark skipped because state is unknown.
