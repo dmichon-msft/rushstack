@@ -93,7 +93,7 @@ export class Operation<TMetadata> {
   public lastRoughHash: string | undefined = undefined;
   public lastExactHash: string | undefined = undefined;
 
-  public status: OperationStatus = OperationStatus.Ready;
+  public status: OperationStatus = 'Ready';
 
   public constructor(metadata: TMetadata | undefined, runner: IOperationRunner | undefined) {
     this.metadata = metadata;
@@ -124,8 +124,6 @@ export class Operation<TMetadata> {
   public async getExactStateHashAsync(): Promise<string> {
     return '';
   }
-
-  public async;
 
   /**
    * Adds the specified operation as a dependency and updates the consumer list.
