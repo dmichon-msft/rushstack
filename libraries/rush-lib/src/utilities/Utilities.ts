@@ -635,7 +635,7 @@ export class Utilities {
         ...options.environmentPathOptions,
         rushJsonFolder: options.rushConfiguration?.rushJsonFolder,
         projectRoot: options.workingDirectory,
-        commonTempFolder: options.rushConfiguration ? options.rushConfiguration.commonTempFolder : undefined
+        commonTempFolder: options.rushConfiguration?.commonTempFolder
       }
     });
 
