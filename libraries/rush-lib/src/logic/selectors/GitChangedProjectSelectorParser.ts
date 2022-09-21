@@ -4,7 +4,14 @@
 import type { RushConfiguration } from '../../api/RushConfiguration';
 import type { RushConfigurationProject } from '../../api/RushConfigurationProject';
 import { IEvaluateSelectorOptions, ISelectorParser } from './ISelectorParser';
-import { IGetChangedProjectsOptions, ProjectChangeAnalyzer } from '../ProjectChangeAnalyzer';
+import {
+  IGetChangedProjectsOptions,
+  IProjectFileFilterMap,
+  ProjectChangeAnalyzer
+} from '../ProjectChangeAnalyzer';
+import { Async, ITerminal } from '@rushstack/node-core-library';
+import { RushProjectConfiguration } from '../../api/RushProjectConfiguration';
+import ignore, { Ignore } from 'ignore';
 
 export interface IGitSelectorParserOptions {
   /**
@@ -35,10 +42,18 @@ export class GitChangedProjectSelectorParser implements ISelectorParser<RushConf
   }: IEvaluateSelectorOptions): Promise<Iterable<RushConfigurationProject>> {
     const projectChangeAnalyzer: ProjectChangeAnalyzer = new ProjectChangeAnalyzer(this._rushConfiguration);
 
+    const { includeExternalDependencies, enableFiltering } = this._options;
+
+    let filters: Map<RushConfigurationProject, (relativePath: string) => boolean> | undefined;
+    if (enableFiltering) {
+      filters = await this._getFiltersAsync(terminal);
+    }
+
     const options: IGetChangedProjectsOptions = {
       terminal,
       targetBranchName: unscopedSelector,
-      ...this._options
+      includeExternalDependencies,
+      filters
     };
 
     return await projectChangeAnalyzer.getChangedProjectsAsync(options);
@@ -46,5 +61,27 @@ export class GitChangedProjectSelectorParser implements ISelectorParser<RushConf
 
   public getCompletions(): Iterable<string> {
     return [this._rushConfiguration.repositoryDefaultBranch, 'HEAD~1', 'HEAD'];
+  }
+
+  private async _getFiltersAsync(terminal: ITerminal): Promise<IProjectFileFilterMap> {
+    const filters: IProjectFileFilterMap = new Map();
+    await Async.forEachAsync(
+      this._rushConfiguration.projects,
+      async (project: RushConfigurationProject) => {
+        const ignoreGlobs: ReadonlyArray<string> | undefined =
+          await RushProjectConfiguration.tryLoadIgnoreGlobsForProjectAsync(project, terminal);
+        if (ignoreGlobs && ignoreGlobs.length > 0) {
+          const ignoreMatcher: Ignore = ignore();
+          for (const glob of ignoreGlobs) {
+            ignoreMatcher.add(glob);
+          }
+          filters.set(project, ignoreMatcher.createFilter());
+        }
+      },
+      {
+        concurrency: 10
+      }
+    );
+    return filters;
   }
 }
