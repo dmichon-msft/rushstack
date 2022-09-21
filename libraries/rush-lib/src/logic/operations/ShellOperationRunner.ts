@@ -210,7 +210,7 @@ export class ShellOperationRunner implements IOperationRunner {
       let projectDeps: IProjectDeps | undefined;
       let trackedFiles: string[] | undefined;
       try {
-        const fileHashes: Map<string, string> | undefined =
+        const fileHashes: ReadonlyMap<string, string> | undefined =
           await this._projectChangeAnalyzer._tryGetProjectDependenciesAsync(this._rushProject, terminal);
 
         if (fileHashes) {

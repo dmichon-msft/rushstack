@@ -8,14 +8,14 @@ import { getRepoRoot } from '@rushstack/package-deps-hash';
 import { Path, ITerminal, FileSystemStats, FileSystem } from '@rushstack/node-core-library';
 
 import { Git } from './Git';
-import { ProjectChangeAnalyzer } from './ProjectChangeAnalyzer';
+import { IProjectFileFilter, ProjectChangeAnalyzer } from './ProjectChangeAnalyzer';
 import { RushConfiguration } from '../api/RushConfiguration';
 import { RushConfigurationProject } from '../api/RushConfigurationProject';
 
 export interface IProjectWatcherOptions {
   debounceMs?: number;
   rushConfiguration: RushConfiguration;
-  projectsToWatch: ReadonlySet<RushConfigurationProject>;
+  projectsToWatch: ReadonlyMap<RushConfigurationProject, IProjectFileFilter | undefined>;
   terminal: ITerminal;
   initialState?: ProjectChangeAnalyzer | undefined;
 }
@@ -45,7 +45,7 @@ export class ProjectWatcher {
   private readonly _debounceMs: number;
   private readonly _repoRoot: string;
   private readonly _rushConfiguration: RushConfiguration;
-  private readonly _projectsToWatch: ReadonlySet<RushConfigurationProject>;
+  private readonly _projectsToWatch: ReadonlyMap<RushConfigurationProject, IProjectFileFilter | undefined>;
   private readonly _terminal: ITerminal;
 
   private _initialState: ProjectChangeAnalyzer | undefined;
@@ -92,11 +92,12 @@ export class ProjectWatcher {
       // Watch the entire repository; a single recursive watcher is cheap.
       pathsToWatch.add(this._repoRoot);
     } else {
-      for (const project of this._projectsToWatch) {
-        const projectState: Map<string, string> = (await previousState._tryGetProjectDependenciesAsync(
+      for (const [project, filter] of this._projectsToWatch) {
+        const projectState: ReadonlyMap<string, string> = previousState._tryGetProjectDependenciesAsync(
           project,
-          this._terminal
-        ))!;
+          this._terminal,
+          filter || undefined
+        )!;
 
         const prefixLength: number = project.projectFolder.length - repoRoot.length - 1;
         // Watch files in the root of the project, or
@@ -250,16 +251,16 @@ export class ProjectWatcher {
 
     if (!previousState) {
       return {
-        changedProjects: this._projectsToWatch,
+        changedProjects: new Set(this._projectsToWatch.keys()),
         state
       };
     }
 
     const changedProjects: Set<RushConfigurationProject> = new Set();
-    for (const project of this._projectsToWatch) {
+    for (const [project, filter] of this._projectsToWatch) {
       const [previous, current] = await Promise.all([
-        previousState._tryGetProjectDependenciesAsync(project, this._terminal),
-        state._tryGetProjectDependenciesAsync(project, this._terminal)
+        previousState._tryGetProjectDependenciesAsync(project, this._terminal, filter),
+        state._tryGetProjectDependenciesAsync(project, this._terminal, filter)
       ]);
 
       if (ProjectWatcher._haveProjectDepsChanged(previous!, current!)) {
@@ -286,7 +287,10 @@ export class ProjectWatcher {
    *
    * @returns `true` if the maps are different, `false` otherwise
    */
-  private static _haveProjectDepsChanged(prev: Map<string, string>, next: Map<string, string>): boolean {
+  private static _haveProjectDepsChanged(
+    prev: ReadonlyMap<string, string>,
+    next: ReadonlyMap<string, string>
+  ): boolean {
     if (prev.size !== next.size) {
       return true;
     }

@@ -2,7 +2,10 @@
 // See LICENSE in the project root for license information.
 
 import * as path from 'path';
-import { AlreadyReportedError, ITerminal, Path } from '@rushstack/node-core-library';
+
+import ignore, { Ignore } from 'ignore';
+
+import { AlreadyReportedError, Async, ITerminal, Path } from '@rushstack/node-core-library';
 import { ConfigurationFile, InheritanceType } from '@rushstack/heft-config-file';
 import { RigConfig } from '@rushstack/rig-package';
 
@@ -10,6 +13,8 @@ import { RushConfigurationProject } from './RushConfigurationProject';
 import { RushConstants } from '../logic/RushConstants';
 import type { IPhase } from './CommandLineConfiguration';
 import { OverlappingPathAnalyzer } from '../utilities/OverlappingPathAnalyzer';
+import { RushConfiguration } from './RushConfiguration';
+import { IProjectFileFilterMap } from '../logic/ProjectChangeAnalyzer';
 
 /**
  * Describes the file structure for the "<project root>/config/rush-project.json" config file.
@@ -162,6 +167,7 @@ const OLD_RUSH_PROJECT_CONFIGURATION_FILE: ConfigurationFile<IOldRushProjectJson
 export class RushProjectConfiguration {
   private static readonly _configCache: Map<RushConfigurationProject, RushProjectConfiguration | false> =
     new Map();
+  private static readonly _filterCache: WeakMap<RushConfiguration, IProjectFileFilterMap> = new WeakMap();
 
   public readonly project: RushConfigurationProject;
 
@@ -348,6 +354,38 @@ export class RushProjectConfiguration {
         throw e;
       }
     }
+  }
+
+  public static async getProjectFiltersAsync(
+    rushConfiguration: RushConfiguration,
+    terminal: ITerminal
+  ): Promise<IProjectFileFilterMap> {
+    const fromCache: IProjectFileFilterMap | undefined = this._filterCache.get(rushConfiguration);
+    if (fromCache) {
+      return fromCache;
+    }
+
+    const filters: IProjectFileFilterMap = new Map();
+    await Async.forEachAsync(
+      rushConfiguration.projects,
+      async (project: RushConfigurationProject) => {
+        const ignoreGlobs: ReadonlyArray<string> | undefined =
+          await RushProjectConfiguration.tryLoadIgnoreGlobsForProjectAsync(project, terminal);
+
+        if (ignoreGlobs && ignoreGlobs.length > 0) {
+          const ignoreMatcher: Ignore = ignore();
+          for (const glob of ignoreGlobs) {
+            ignoreMatcher.add(glob);
+          }
+          filters.set(project, ignoreMatcher.createFilter());
+        }
+      },
+      {
+        concurrency: 10
+      }
+    );
+    this._filterCache.set(rushConfiguration, filters);
+    return filters;
   }
 
   private static _getRushProjectConfiguration(

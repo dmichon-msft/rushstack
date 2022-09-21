@@ -61,12 +61,15 @@ interface IRawRepoState {
   rootDir: string;
 }
 
+type IFilterCacheMap = Map<RushConfigurationProject, ReadonlyMap<string, string>>;
+
 /**
  * @beta
  */
 export class ProjectChangeAnalyzer {
   private _data: IRawRepoState | undefined;
   private readonly _rushConfiguration: RushConfiguration;
+  private readonly _cacheByFilter: WeakMap<IProjectFileFilter, IFilterCacheMap> = new WeakMap();
   private readonly _git: Git;
 
   public constructor(rushConfiguration: RushConfiguration) {
@@ -94,7 +97,7 @@ export class ProjectChangeAnalyzer {
    *
    * @internal
    */
-  public _getProjectDependencies(
+  public _tryGetProjectDependenciesAsync(
     project: RushConfigurationProject,
     terminal: ITerminal,
     fileFilter?: IProjectFileFilter
@@ -110,9 +113,23 @@ export class ProjectChangeAnalyzer {
       throw new Error(`Project "${project.packageName}" does not exist in the current Rush configuration.`);
     }
 
-    return fileFilter
-      ? this._filterProjectData(project, unfilteredProjectData, rootDir, fileFilter)
-      : unfilteredProjectData;
+    if (!fileFilter) {
+      return unfilteredProjectData;
+    }
+
+    let cacheForFilter: IFilterCacheMap | undefined = this._cacheByFilter.get(fileFilter);
+    if (!cacheForFilter) {
+      cacheForFilter = new Map();
+      this._cacheByFilter.set(fileFilter, cacheForFilter);
+    }
+
+    let cacheEntry: ReadonlyMap<string, string> | undefined = cacheForFilter.get(project);
+    if (!cacheEntry) {
+      cacheEntry = this._filterProjectData(project, unfilteredProjectData, rootDir, fileFilter);
+      cacheForFilter.set(project, cacheEntry);
+    }
+
+    return cacheEntry;
   }
 
   /**
@@ -127,12 +144,12 @@ export class ProjectChangeAnalyzer {
    *
    * @internal
    */
-  public _getProjectStateHash(
+  public _tryGetProjectStateHashAsync(
     project: RushConfigurationProject,
     terminal: ITerminal,
     fileFilter?: IProjectFileFilter
   ): string | undefined {
-    const packageDeps: ReadonlyMap<string, string> | undefined = this._getProjectDependencies(
+    const packageDeps: ReadonlyMap<string, string> | undefined = this._tryGetProjectDependenciesAsync(
       project,
       terminal,
       fileFilter

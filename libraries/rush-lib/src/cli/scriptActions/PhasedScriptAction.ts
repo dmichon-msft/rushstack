@@ -32,11 +32,16 @@ import { Operation } from '../../logic/operations/Operation';
 import { PhasedOperationPlugin } from '../../logic/operations/PhasedOperationPlugin';
 import { ShellOperationRunnerPlugin } from '../../logic/operations/ShellOperationRunnerPlugin';
 import { Event } from '../../api/EventHooks';
-import { ProjectChangeAnalyzer } from '../../logic/ProjectChangeAnalyzer';
+import {
+  IProjectFileFilter,
+  IProjectFileFilterMap,
+  ProjectChangeAnalyzer
+} from '../../logic/ProjectChangeAnalyzer';
 import { OperationStatus } from '../../logic/operations/OperationStatus';
 import { IExecutionResult } from '../../logic/operations/IOperationExecutionResult';
 import { OperationResultSummarizerPlugin } from '../../logic/operations/OperationResultSummarizerPlugin';
 import type { ITelemetryOperationResult } from '../../logic/Telemetry';
+import { RushProjectConfiguration } from '../../api/RushProjectConfiguration';
 
 /**
  * Constructor parameters for PhasedScriptAction.
@@ -438,8 +443,16 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
 
     const phaseSelection: Set<IPhase> = new Set(this._watchPhases);
 
-    const { projectChangeAnalyzer: initialState, projectSelection: projectsToWatch } =
-      initialCreateOperationsContext;
+    const { projectChangeAnalyzer: initialState, projectSelection } = initialCreateOperationsContext;
+
+    const filtersMap: IProjectFileFilterMap = await RushProjectConfiguration.getProjectFiltersAsync(
+      this.rushConfiguration,
+      terminal
+    );
+    const projectsToWatch: Map<RushConfigurationProject, IProjectFileFilter | undefined> = new Map();
+    for (const project of projectSelection) {
+      projectsToWatch.set(project, filtersMap.get(project));
+    }
 
     // Use async import so that we don't pay the cost for sync builds
     const { ProjectWatcher } = await import('../../logic/ProjectWatcher');
