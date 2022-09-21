@@ -1,27 +1,37 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import { StdioSummarizer } from '@rushstack/terminal';
-import { InternalError } from '@rushstack/node-core-library';
-import { CollatedWriter, StreamCollator } from '@rushstack/stream-collator';
+import {
+  DiscardStdoutTransform,
+  SplitterTransform,
+  StderrLineTransform,
+  TerminalWritable,
+  TextRewriterTransform
+} from '@rushstack/terminal';
+import { InternalError, ITerminal, NewlineKind, Terminal } from '@rushstack/node-core-library';
+import { CollatedTerminal, CollatedWriter, StreamCollator } from '@rushstack/stream-collator';
 
 import { OperationStatus } from './OperationStatus';
 import { IOperationRunner, IOperationRunnerContext } from './IOperationRunner';
 import { Operation } from './Operation';
 import { Stopwatch } from '../../utilities/Stopwatch';
 import { OperationStateFile } from './OperationStateFile';
+import { ProjectLogWritable } from './ProjectLogWritable';
+import { CollatedTerminalProvider } from '../../utilities/CollatedTerminalProvider';
 
 export interface IOperationExecutionRecordContext {
   streamCollator: StreamCollator;
 
   debugMode: boolean;
   quietMode: boolean;
+
+  commonTempFolder: string;
 }
 
 /**
  * Internal class representing everything about executing an operation
  */
-export class OperationExecutionRecord implements IOperationRunnerContext {
+export class OperationExecutionRecord {
   /**
    * The current execution status of an operation. Operations start in the 'ready' state,
    * but can be 'blocked' if an upstream operation failed. It is 'executing' when
@@ -29,6 +39,11 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
    * 'failure'.
    */
   public status: OperationStatus = OperationStatus.Ready;
+
+  /**
+   * The input hash that `status` is valid for.
+   */
+  public hash: string | undefined = undefined;
 
   /**
    * The error which occurred while executing this operation, this is stored in case we need
@@ -77,18 +92,17 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
   public readonly consumers: Set<OperationExecutionRecord> = new Set();
 
   public readonly stopwatch: Stopwatch = new Stopwatch();
-  public readonly stdioSummarizer: StdioSummarizer = new StdioSummarizer();
 
   public readonly runner: IOperationRunner;
   public readonly weight: number;
   public readonly _operationStateFile: OperationStateFile | undefined;
 
+  private readonly _operation: Operation;
   private readonly _context: IOperationExecutionRecordContext;
-
-  private _collatedWriter: CollatedWriter | undefined = undefined;
 
   public constructor(operation: Operation, context: IOperationExecutionRecordContext) {
     const { runner } = operation;
+    this._operation = operation;
 
     if (!runner) {
       throw new InternalError(
@@ -111,33 +125,30 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
     return this.runner.name;
   }
 
-  public get debugMode(): boolean {
-    return this._context.debugMode;
-  }
-
-  public get quietMode(): boolean {
-    return this._context.quietMode;
-  }
-
-  public get collatedWriter(): CollatedWriter {
-    // Lazy instantiate because the registerTask() call affects display ordering
-    if (!this._collatedWriter) {
-      this._collatedWriter = this._context.streamCollator.registerTask(this.name);
-    }
-    return this._collatedWriter;
-  }
-
   public get nonCachedDurationMs(): number | undefined {
     // Lazy calculated because the state file is created/restored later on
     return this._operationStateFile?.state?.nonCachedDurationMs;
   }
 
   public async executeAsync(onResult: (record: OperationExecutionRecord) => void): Promise<void> {
+    // Get current hash
+    // Check against last hash
+    // If match, do nothing
+
     this.status = OperationStatus.Executing;
     this.stopwatch.start();
 
+    // Check for cache hit
+    // If found, attempt cache replay via priority queue
+
+    // Wait for dependencies to finish
+
+    // If not found or cache replay failed, invoke runner
+
+    const runnerContext: OperationRunnerContext = new OperationRunnerContext(this._operation, this._context);
+
     try {
-      this.status = await this.runner.executeAsync(this);
+      this.status = await this.runner.executeAsync(runnerContext);
       // Delegate global state reporting
       onResult(this);
     } catch (error) {
@@ -146,9 +157,110 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
       // Delegate global state reporting
       onResult(this);
     } finally {
-      this._collatedWriter?.close();
-      this.stdioSummarizer.close();
+      runnerContext.dispose();
       this.stopwatch.stop();
     }
+
+    // Perform cache write
+  }
+}
+
+interface IProjectLogs {
+  terminalWritable: TerminalWritable;
+  projectLogWritable: ProjectLogWritable;
+  terminal: ITerminal;
+}
+
+class OperationRunnerContext implements IOperationRunnerContext {
+  private readonly _operation: Operation;
+  private readonly _context: IOperationExecutionRecordContext;
+  private _logger: IProjectLogs | undefined;
+
+  public constructor(operation: Operation, context: IOperationExecutionRecordContext) {
+    this._operation = operation;
+    this._context = context;
+    this._logger = undefined;
+  }
+
+  public get debugMode(): boolean {
+    return this._context.debugMode;
+  }
+
+  public get quietMode(): boolean {
+    return this._context.quietMode;
+  }
+
+  public get terminal(): ITerminal {
+    return this._ensureLog().terminal;
+  }
+
+  public get terminalWritable(): TerminalWritable {
+    return this._ensureLog().terminalWritable;
+  }
+
+  public dispose(): void {
+    if (this._logger) {
+      this._logger.terminalWritable.close();
+      this._logger.projectLogWritable.close();
+    }
+  }
+
+  private _ensureLog(): IProjectLogs {
+    if (!this._logger) {
+      const { name } = this._operation;
+
+      const { commonTempFolder, streamCollator, debugMode, quietMode } = this._context;
+
+      const logFilePath: string = this._operation.getLogFilePath(commonTempFolder);
+
+      // TERMINAL PIPELINE:
+      //                             +--> quietModeTransform? --> collatedWriter
+      //                             |
+      // normalizeNewlineTransform --1--> stderrLineTransform --> removeColorsTransform --> projectLogWritable
+      const collatedWriter: CollatedWriter = streamCollator.registerTask(name!);
+
+      const projectLogWritable: ProjectLogWritable = new ProjectLogWritable(
+        logFilePath,
+        collatedWriter.terminal
+      );
+
+      const removeColorsTransform: TextRewriterTransform = new TextRewriterTransform({
+        destination: projectLogWritable,
+        removeColors: true,
+        normalizeNewlines: NewlineKind.OsDefault
+      });
+
+      const stderrLineTransform: StderrLineTransform = new StderrLineTransform({
+        destination: removeColorsTransform,
+        newlineKind: NewlineKind.Lf // for StdioSummarizer
+      });
+
+      const splitterTransform: SplitterTransform = new SplitterTransform({
+        destinations: [
+          quietMode ? new DiscardStdoutTransform({ destination: collatedWriter }) : collatedWriter,
+          stderrLineTransform
+        ]
+      });
+
+      const normalizeNewlineTransform: TextRewriterTransform = new TextRewriterTransform({
+        destination: splitterTransform,
+        normalizeNewlines: NewlineKind.Lf,
+        ensureNewlineAtEnd: true
+      });
+
+      const collatedTerminal: CollatedTerminal = new CollatedTerminal(normalizeNewlineTransform);
+      const terminalProvider: CollatedTerminalProvider = new CollatedTerminalProvider(collatedTerminal, {
+        debugEnabled: debugMode
+      });
+      const terminal: Terminal = new Terminal(terminalProvider);
+
+      this._logger = {
+        terminalWritable: normalizeNewlineTransform,
+        projectLogWritable,
+        terminal
+      };
+    }
+
+    return this._logger;
   }
 }

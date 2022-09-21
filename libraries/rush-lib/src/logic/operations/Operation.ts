@@ -4,6 +4,10 @@
 import { RushConfigurationProject } from '../../api/RushConfigurationProject';
 import { IPhase } from '../../api/CommandLineConfiguration';
 import { IOperationRunner } from './IOperationRunner';
+import { ProjectChangeAnalyzer } from '../ProjectChangeAnalyzer';
+import { RushConstants } from '../RushConstants';
+import { PackageNameParsers } from '../../api/PackageNameParsers';
+import { OperationStatus } from './OperationStatus';
 
 /**
  * Options for constructing a new Operation.
@@ -23,6 +27,39 @@ export interface IOperationOptions {
    * running the operation.
    */
   runner?: IOperationRunner | undefined;
+  /**
+   * Object that will be used to compute a hash of local inputs. The result will be combined with the hashes
+   * of the `Operation`'s dependencies to get the final input state of the operation.
+   */
+  hasher?: IOperationStateHasher | undefined;
+  /**
+   * The results of the most recent execution of the operation.
+   */
+  lastState?: IOperationState;
+}
+
+/**
+ * Represents the last execution state of an `Operation`.
+ * @alpha
+ */
+export interface IOperationState {
+  hash: string;
+  status: OperationStatus;
+  error: Error | undefined;
+}
+
+/**
+ * Object responsible for computing the hash of the local inputs
+ * @alpha
+ */
+export interface IOperationStateHasher {
+  /**
+   * Computes the hash of the local inputs to the operation. The result will be combined with the hashes of the
+   * `Operation`'s dependencies to compute the final input state.
+   * @param repositoryState - The state of all tracked files in the repository. Used to get the contributions
+   *   of directly referenced source files, whether locally or in common directories.
+   */
+  getStateHashAsync(repositoryState: ProjectChangeAnalyzer): Promise<string>;
 }
 
 /**
@@ -66,10 +103,20 @@ export class Operation {
   public outputFolderNames: string[] | undefined;
 
   /**
+   * Object responsible for hashing local file inputs
+   */
+  public hasher: IOperationStateHasher | undefined;
+
+  /**
    * When the scheduler is ready to process this `Operation`, the `runner` implements the actual work of
    * running the operation.
    */
-  public runner: IOperationRunner | undefined = undefined;
+  public runner: IOperationRunner | undefined;
+
+  /**
+   * If set, the scheduler may use this to decide to skip an operation if its inputs have not changed.
+   */
+  public lastState: IOperationState | undefined;
 
   /**
    * The weight for this operation. This scalar is the contribution of this operation to the
@@ -88,6 +135,8 @@ export class Operation {
     this.associatedPhase = options?.phase;
     this.associatedProject = options?.project;
     this.runner = options?.runner;
+    this.hasher = options?.hasher;
+    this.lastState = options?.lastState;
   }
 
   /**
@@ -95,6 +144,33 @@ export class Operation {
    */
   public get name(): string | undefined {
     return this.runner?.name;
+  }
+
+  /**
+   * The path to which the log for this operation will be written.
+   * @param defaultLogFolder - If no associated project, write logs to this folder.
+   */
+  public getLogFilePath(defaultLogFolder: string): string {
+    const { associatedPhase, associatedProject } = this;
+
+    const logDir: string = `${associatedProject?.projectFolder ?? defaultLogFolder}/${
+      RushConstants.rushLogsFolderName
+    }`;
+    let logName: string | undefined;
+
+    if (associatedProject) {
+      logName = PackageNameParsers.permissive.getUnscopedName(associatedProject.packageName);
+
+      if (associatedPhase) {
+        logName += `.${associatedPhase.logFilenameIdentifier}`;
+      }
+    } else if (associatedPhase) {
+      logName = associatedPhase.logFilenameIdentifier;
+    } else {
+      logName = `${this.name!}`.replace(/[^A-Za-z0-9_.+@-]/g, '_');
+    }
+
+    return `${logDir}/${logName}.log`;
   }
 
   /**

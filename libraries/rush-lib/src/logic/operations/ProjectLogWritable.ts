@@ -1,66 +1,33 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
+import path from 'path';
 import { FileSystem, FileWriter, InternalError } from '@rushstack/node-core-library';
 import { TerminalChunkKind, TerminalWritable, ITerminalChunk } from '@rushstack/terminal';
 import { CollatedTerminal } from '@rushstack/stream-collator';
 
-import { RushConfigurationProject } from '../../api/RushConfigurationProject';
-import { PackageNameParsers } from '../../api/PackageNameParsers';
-import { RushConstants } from '../RushConstants';
+const LOG_EXTENSION_REGEX: RegExp = /\.log$/;
 
 export class ProjectLogWritable extends TerminalWritable {
-  private readonly _project: RushConfigurationProject;
   private readonly _terminal: CollatedTerminal;
 
-  private _logPath: string;
-  private _errorLogPath: string;
+  private readonly _logPath: string;
+  private readonly _errorLogPath: string;
 
   private _logWriter: FileWriter | undefined = undefined;
   private _errorLogWriter: FileWriter | undefined = undefined;
 
-  public constructor(
-    project: RushConfigurationProject,
-    terminal: CollatedTerminal,
-    logFilenameIdentifier: string
-  ) {
+  public constructor(logFilePath: string, terminal: CollatedTerminal) {
     super();
-    this._project = project;
+
     this._terminal = terminal;
 
-    function getLogFilePaths(
-      basePath: string,
-      logFilenameIdentifier: string
-    ): { logPath: string; errorLogPath: string } {
-      const unscopedProjectName: string = PackageNameParsers.permissive.getUnscopedName(project.packageName);
+    this._logPath = logFilePath;
+    this._errorLogPath = logFilePath.replace(LOG_EXTENSION_REGEX, '.error.log');
 
-      return {
-        logPath: `${basePath}/${unscopedProjectName}.${logFilenameIdentifier}.log`,
-        errorLogPath: `${basePath}/${unscopedProjectName}.${logFilenameIdentifier}.error.log`
-      };
-    }
+    const logsDir: string = path.dirname(this._logPath);
 
-    const projectFolder: string = this._project.projectFolder;
-    const { logPath: legacyLogPath, errorLogPath: legacyErrorLogPath } = getLogFilePaths(
-      projectFolder,
-      'build'
-    );
-    // If the phased commands experiment is enabled, put logs under `rush-logs`
-    if (project.rushConfiguration.experimentsConfiguration.configuration.phasedCommands) {
-      // Delete the legacy logs
-      FileSystem.deleteFile(legacyLogPath);
-      FileSystem.deleteFile(legacyErrorLogPath);
-
-      const logPathPrefix: string = `${projectFolder}/${RushConstants.rushLogsFolderName}`;
-      FileSystem.ensureFolder(logPathPrefix);
-
-      const { logPath, errorLogPath } = getLogFilePaths(logPathPrefix, logFilenameIdentifier);
-      this._logPath = logPath;
-      this._errorLogPath = errorLogPath;
-    } else {
-      this._logPath = legacyLogPath;
-      this._errorLogPath = legacyErrorLogPath;
-    }
+    FileSystem.ensureFolder(logsDir);
 
     FileSystem.deleteFile(this._logPath);
     FileSystem.deleteFile(this._errorLogPath);

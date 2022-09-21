@@ -1,8 +1,8 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import type { StdioSummarizer } from '@rushstack/terminal';
-import type { CollatedWriter } from '@rushstack/stream-collator';
+import { ITerminal } from '@rushstack/node-core-library';
+import { TerminalWritable } from '@rushstack/terminal';
 
 import type { OperationStatus } from './OperationStatus';
 import type { OperationStateFile } from './OperationStateFile';
@@ -15,10 +15,6 @@ import type { IStopwatchResult } from '../../utilities/Stopwatch';
  */
 export interface IOperationRunnerContext {
   /**
-   * The writer into which this `IOperationRunner` should write its logs.
-   */
-  collatedWriter: CollatedWriter;
-  /**
    * If Rush was invoked with `--debug`
    */
   debugMode: boolean;
@@ -27,19 +23,13 @@ export interface IOperationRunnerContext {
    */
   quietMode: boolean;
   /**
-   * Object used to report a summary at the end of the Rush invocation.
+   * The terminal into which this `IOperationRunner` should write its logs.
    */
-  stdioSummarizer: StdioSummarizer;
+  terminal: ITerminal;
   /**
-   * Object used to record state of the operation.
-   *
-   * @internal
+   * Underlying writable to allow writing directly to stderr/stdout.
    */
-  _operationStateFile?: OperationStateFile;
-  /**
-   * Object used to track elapsed time.
-   */
-  stopwatch: IStopwatchResult;
+  terminalWritable: TerminalWritable;
 }
 
 /**

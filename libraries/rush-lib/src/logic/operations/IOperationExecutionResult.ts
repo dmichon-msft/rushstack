@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import type { StdioSummarizer } from '@rushstack/terminal';
 import type { OperationStatus } from './OperationStatus';
 import type { IStopwatchResult } from '../../utilities/Stopwatch';
 import type { Operation } from './Operation';
@@ -11,6 +10,10 @@ import type { Operation } from './Operation';
  * @alpha
  */
 export interface IOperationExecutionResult {
+  /**
+   * Input state hash for the operation.
+   */
+  readonly hash: string;
   /**
    * The current execution status of an operation. Operations start in the 'ready' state,
    * but can be 'blocked' if an upstream operation failed. It is 'executing' when
@@ -27,10 +30,6 @@ export interface IOperationExecutionResult {
    * Object tracking execution timing.
    */
   readonly stopwatch: IStopwatchResult;
-  /**
-   * Object used to report a summary at the end of the Rush invocation.
-   */
-  readonly stdioSummarizer: StdioSummarizer;
   /**
    * The value indicates the duration of the same operation without cache hit.
    */
