@@ -400,11 +400,14 @@ export interface IOperationRunner {
 export interface IOperationRunnerContext {
     collatedWriter: CollatedWriter;
     debugMode: boolean;
+    isCacheWriteAllowed: boolean;
     // @internal
     _operationStateFile?: _OperationStateFile;
     quietMode: boolean;
+    stateHash: string | undefined;
     stdioSummarizer: StdioSummarizer;
     stopwatch: IStopwatchResult;
+    trackedFileHashes: ReadonlyMap<string, string> | undefined;
 }
 
 // @internal (undocumented)
@@ -728,6 +731,8 @@ export class ProjectChangeAnalyzer {
     // (undocumented)
     _filterProjectDataAsync<T>(project: RushConfigurationProject, unfilteredProjectData: Map<string, T>, rootDir: string, terminal: ITerminal): Promise<Map<string, T>>;
     getChangedProjectsAsync(options: IGetChangedProjectsOptions): Promise<Set<RushConfigurationProject>>;
+    // @internal (undocumented)
+    _hashProjectDependencies(packageDeps: ReadonlyMap<string, string>): string;
     // @internal
     _tryGetProjectDependenciesAsync(project: RushConfigurationProject, terminal: ITerminal): Promise<Map<string, string> | undefined>;
     // @internal

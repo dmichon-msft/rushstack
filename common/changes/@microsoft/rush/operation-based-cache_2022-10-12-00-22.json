@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/rush",
+      "comment": "Make the build cache id be based on the Operation dependencies, not the Project dependencies of an Operation.",
+      "type": "none"
+    }
+  ],
+  "packageName": "@microsoft/rush"
+}
