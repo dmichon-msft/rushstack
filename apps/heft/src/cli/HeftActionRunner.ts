@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
 import glob from 'fast-glob';
+import { createInterface, type Interface } from 'readline';
 import {
   AlreadyReportedError,
   Colors,
@@ -59,6 +60,7 @@ interface IWaitForSourceChangesOptions {
   readonly git: GitUtilities;
   readonly changedFiles: Map<string, IChangedFileState>;
   readonly staticFileSystemAdapter: StaticFileSystemAdapter;
+  readonly cancellationToken: CancellationToken;
 }
 
 const INITIAL_CHANGE_STATE: '0' = '0';
@@ -70,7 +72,7 @@ const IS_WINDOWS: boolean = process.platform === 'win32';
 async function* _waitForSourceChangesAsync(
   options: IWaitForSourceChangesOptions
 ): AsyncIterableIterator<void> {
-  const { terminal, watcher, watchOptions, git } = options;
+  const { terminal, watcher, watchOptions, git, cancellationToken } = options;
   const forbiddenSourceFileGlobs: string[] = Array.from(watchOptions.forbiddenSourceFileGlobs);
   const changedFileStats: Map<string, fs.Stats | undefined> = new Map();
   const seenFilePaths: Set<string> = new Set();
@@ -237,9 +239,13 @@ async function* _waitForSourceChangesAsync(
   yield;
 
   // eslint-disable-next-line no-constant-condition
-  while (true) {
+  while (!cancellationToken.isCancelled) {
     // Wait for the file change promise tick
-    await fileChangePromise;
+    await Promise.race([fileChangePromise, cancellationToken.onCancelledPromise]);
+
+    if (cancellationToken.isCancelled) {
+      return;
+    }
 
     // Clone the map so that we can hold on to the set of changed files
     const fileChangesToProcess: Map<string, fs.Stats | undefined> = new Map(changedFileStats);
@@ -533,6 +539,20 @@ export class HeftActionRunner {
       terminal.writeLine.bind(terminal)
     );
 
+    const cli: Interface = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true
+    });
+
+    const cliCancellationTokenSource: CancellationTokenSource = new CancellationTokenSource();
+    const cliCancellationToken: CancellationToken = cliCancellationTokenSource.token;
+
+    cli.on('SIGINT', () => {
+      cliCancellationTokenSource.cancel();
+      terminal.writeWarningLine(`SIGINT detected. Shutting down.`);
+    });
+
     const git: GitUtilities = new GitUtilities(this._heftConfiguration.buildFolderPath);
     const changedFiles: Map<string, IChangedFileState> = new Map();
     const staticFileSystemAdapter: StaticFileSystemAdapter = new StaticFileSystemAdapter();
@@ -561,7 +581,8 @@ export class HeftActionRunner {
           git,
           changedFiles,
           staticFileSystemAdapter,
-          watchOptions: this._internalHeftSession.watchOptions
+          watchOptions: this._internalHeftSession.watchOptions,
+          cancellationToken: cliCancellationToken
         });
         // Await the first iteration, which is used to ingest the initial state. Once we have the initial
         // state, then we can start listening for changes.
@@ -579,10 +600,21 @@ export class HeftActionRunner {
     let isFirstRun: boolean = true;
 
     // eslint-disable-next-line no-constant-condition
-    while (true) {
+    while (!cliCancellationToken.isCancelled) {
       // Create the cancellation token which is passed to the incremental build.
       const cancellationTokenSource: CancellationTokenSource = new CancellationTokenSource();
       const cancellationToken: CancellationToken = cancellationTokenSource.token;
+
+      cliCancellationToken.onCancelledPromise.then(
+        () => {
+          // Cancel the build if requested via CLI
+          cancellationTokenSource.cancel();
+        },
+        () => {
+          // Cancel the build if requested via CLI
+          cancellationTokenSource.cancel();
+        }
+      );
 
       // Start the incremental build and wait for a source file to change
       const sourceChangesPromise: Promise<true> = iterator.next().then(() => true);
@@ -605,6 +637,9 @@ export class HeftActionRunner {
             Colors.bold('Changes detected, cancelling and restarting incremental build...')
           );
           await executePromise;
+        } else if (cliCancellationToken.isCancelled) {
+          this._terminal.writeLine(Colors.bold('Shutting down...'));
+          break;
         } else {
           // If the build is complete, clear the changed files map and await the next iteration. We
           // will continue to use the existing map if the build is not complete, since it may contain
@@ -634,11 +669,15 @@ export class HeftActionRunner {
         }
       }
 
-      // Write an empty line to the terminal for separation between iterations. We've already iterated
-      // at this point, so log out that we're about to start a new run.
-      this._terminal.writeLine('');
-      this._terminal.writeLine(Colors.bold('Starting incremental build...'));
+      if (!cliCancellationToken.isCancelled) {
+        // Write an empty line to the terminal for separation between iterations. We've already iterated
+        // at this point, so log out that we're about to start a new run.
+        this._terminal.writeLine('');
+        this._terminal.writeLine(Colors.bold('Starting incremental build...'));
+      }
     }
+
+    await watcher.close();
   }
 
   private async _executeOnceAsync(
