@@ -22,6 +22,7 @@ import type {
   CommandLineStringListParameter
 } from '@rushstack/ts-command-line';
 import type * as chokidar from 'chokidar';
+import ignore, { Ignore } from 'ignore';
 
 import type { IHeftSessionWatchOptions, InternalHeftSession } from '../pluginFramework/InternalHeftSession';
 import type { HeftConfiguration } from '../configuration/HeftConfiguration';
@@ -44,10 +45,8 @@ import type { HeftTask } from '../pluginFramework/HeftTask';
 import type { LifecycleOperationRunnerType } from '../operations/runners/LifecycleOperationRunner';
 import type { IChangedFileState } from '../pluginFramework/HeftTaskSession';
 import { CancellationToken, CancellationTokenSource } from '../pluginFramework/CancellationToken';
-import { FileEventListener } from '../utilities/FileEventListener';
 import { Constants } from '../utilities/Constants';
 import { StaticFileSystemAdapter } from '../pluginFramework/StaticFileSystemAdapter';
-import type { GlobFn, IGlobOptions } from '../plugins/FileGlobSpecifier';
 
 export interface IHeftActionRunnerOptions extends IHeftActionOptions {
   action: IHeftAction;
@@ -59,7 +58,6 @@ interface IWaitForSourceChangesOptions {
   readonly watchOptions: IHeftSessionWatchOptions;
   readonly git: GitUtilities;
   readonly changedFiles: Map<string, IChangedFileState>;
-  readonly staticFileSystemAdapter: StaticFileSystemAdapter;
   readonly cancellationToken: CancellationToken;
 }
 
@@ -72,17 +70,10 @@ const IS_WINDOWS: boolean = process.platform === 'win32';
 async function* _waitForSourceChangesAsync(
   options: IWaitForSourceChangesOptions
 ): AsyncIterableIterator<void> {
-  const { terminal, watcher, watchOptions, git, cancellationToken } = options;
+  const { terminal, watcher, watchOptions, cancellationToken } = options;
   const forbiddenSourceFileGlobs: string[] = Array.from(watchOptions.forbiddenSourceFileGlobs);
   const changedFileStats: Map<string, fs.Stats | undefined> = new Map();
   const seenFilePaths: Set<string> = new Set();
-  const seenSourceFilePaths: Set<string> = new Set();
-
-  // Create a gitignore filter to test if a file is ignored by git. If it is, it will be counted
-  // as a non-source file. If it is not, it will be counted as a source file. If git is not present,
-  // all files will be counted as source files and must manually be ignored by providing a glob to
-  // the ignoredSourceFileGlobs option.
-  const isFileUnignored: GitignoreFilterFn = (await git.tryCreateGitignoreFilterAsync()) || (() => true);
 
   let resolveFileChange: () => void;
   let rejectFileChange: (error: Error) => void;
@@ -93,58 +84,42 @@ async function* _waitForSourceChangesAsync(
       ? Selection.difference(filePaths, seenFilePaths)
       : new Set(filePaths);
     if (unseenFilePaths.size) {
-      // Determine which files are ignored or otherwise and stash them away for later.
-      const unseenIgnoredFilePaths: Set<string> = new Set();
-      const unseenSourceFilePaths: Set<string> = new Set();
-      for (const filePath of unseenFilePaths) {
-        const fileIsUnignored: boolean = isFileUnignored(filePath);
-        (fileIsUnignored ? unseenSourceFilePaths : unseenIgnoredFilePaths).add(filePath);
-      }
+      // Use a StaticFileSystemAdapter containing only the unseen source files to determine which files
+      // are forbidden or ignored, allowing us to use in-memory globbing.
+      const unseenSourceFileSystemAdapter: StaticFileSystemAdapter = new StaticFileSystemAdapter(
+        unseenFilePaths
+      );
+      const unseenSourceFileGlobOptions: glob.Options = {
+        fs: unseenSourceFileSystemAdapter,
+        cwd: watcher.options.cwd,
+        absolute: true,
+        dot: true
+      };
 
-      if (unseenSourceFilePaths.size) {
-        // Use a StaticFileSystemAdapter containing only the unseen source files to determine which files
-        // are forbidden or ignored, allowing us to use in-memory globbing.
-        const unseenSourceFileSystemAdapter: StaticFileSystemAdapter = new StaticFileSystemAdapter(
-          unseenSourceFilePaths
+      // Validate that all unseen source files are allowed for watch mode. We need to convert slashes from
+      // the globber if on Windows, since the globber will return the paths with forward slashes.
+      let forbiddenFilePaths: string[] = glob.sync(forbiddenSourceFileGlobs, unseenSourceFileGlobOptions);
+      if (IS_WINDOWS) {
+        forbiddenFilePaths = forbiddenFilePaths.map(Path.convertToBackslashes);
+      }
+      if (ignoreForbidden) {
+        // If it's forbidden and we're ignoring forbidden files, remove from unseenFilePaths and
+        // unseenSourceFilePaths so that we will ingest it as a new file on future changes.
+        for (const forbiddenFilePath of forbiddenFilePaths) {
+          unseenFilePaths.delete(forbiddenFilePath);
+        }
+      } else if (forbiddenFilePaths.length) {
+        // Error and report the first forbidden file for readability reasons
+        throw new Error(
+          `Changes to the file at path "${forbiddenFilePaths[0]}" are forbidden while running ` +
+            `in watch mode.`
         );
-        const unseenSourceFileGlobOptions: glob.Options = {
-          fs: unseenSourceFileSystemAdapter,
-          cwd: watcher.options.cwd,
-          absolute: true,
-          dot: true
-        };
-
-        // Validate that all unseen source files are allowed for watch mode. We need to convert slashes from
-        // the globber if on Windows, since the globber will return the paths with forward slashes.
-        let forbiddenFilePaths: string[] = glob.sync(forbiddenSourceFileGlobs, unseenSourceFileGlobOptions);
-        if (IS_WINDOWS) {
-          forbiddenFilePaths = forbiddenFilePaths.map(Path.convertToBackslashes);
-        }
-        if (ignoreForbidden) {
-          // If it's forbidden and we're ignoring forbidden files, remove from unseenFilePaths and
-          // unseenSourceFilePaths so that we will ingest it as a new file on future changes.
-          for (const forbiddenFilePath of forbiddenFilePaths) {
-            unseenFilePaths.delete(forbiddenFilePath);
-            unseenSourceFilePaths.delete(forbiddenFilePath);
-          }
-        } else if (forbiddenFilePaths.length) {
-          // Error and report the first forbidden file for readability reasons
-          throw new Error(
-            `Changes to the file at path "${forbiddenFilePaths[0]}" are forbidden while running ` +
-              `in watch mode.`
-          );
-        }
       }
+    }
 
-      // Add the new files to the set of seen files
-      for (const filePath of unseenFilePaths) {
-        seenFilePaths.add(filePath);
-      }
-
-      // Add the new source files to the set of seen source files
-      for (const sourceFilePath of unseenSourceFilePaths) {
-        seenSourceFilePaths.add(sourceFilePath);
-      }
+    // Add the new files to the set of seen files
+    for (const filePath of unseenFilePaths) {
+      seenFilePaths.add(filePath);
     }
   }
 
@@ -168,15 +143,19 @@ async function* _waitForSourceChangesAsync(
 
   function generateChangeState(filePath: string, stats?: fs.Stats): IChangedFileState {
     const version: string | undefined = generateChangeHash(filePath, stats);
-    const isSourceFile: boolean = seenSourceFilePaths.has(filePath);
-    return { isSourceFile, version };
+    return { isSourceFile: true, version };
   }
+
+  let resolveTimeout: NodeJS.Timeout | undefined;
 
   function onChange(relativeFilePath: string, fileStats?: fs.Stats): void {
     // watcher.options.cwd is set below, use to resolve the absolute path
     const filePath: string = `${watcher.options.cwd!}${path.sep}${relativeFilePath}`;
     changedFileStats.set(filePath, fileStats);
-    resolveFileChange();
+    if (resolveTimeout) {
+      clearTimeout(resolveTimeout);
+    }
+    resolveTimeout = setTimeout(resolveFileChange, 100);
   }
 
   function createFileChangePromise(): Promise<void> {
@@ -222,8 +201,6 @@ async function* _waitForSourceChangesAsync(
       // to the plugin.
       options.changedFiles.set(Path.convertToSlashes(filePath), state);
     }
-    // Add the file to the filesystem adapter used for in-memory globbing
-    options.staticFileSystemAdapter.addFile(filePath);
   }
 
   // Setup the promise to resolve when a file change is detected.
@@ -258,7 +235,6 @@ async function* _waitForSourceChangesAsync(
     ingestFileChanges(fileChangesToProcess.keys());
 
     // Update the output map to contain the new file change state
-    let containsSourceFiles: boolean = false;
     for (const [filePath, stats] of fileChangesToProcess) {
       const state: IChangedFileState = generateChangeState(filePath, stats);
       // Dedupe the changed files so that we don't emit the same file twice.
@@ -270,20 +246,14 @@ async function* _waitForSourceChangesAsync(
           // since we can't be sure what format the path was provided in
           options.changedFiles.set(Path.convertToSlashes(filePath), state);
         }
-        // Always add the file to the filesystem adapter used for in-memory globbing, regardless of
-        // deletion state. This is because we are globbing for the existence of files in the
-        // changedFiles map, not whether or not they exist on disk.
-        options.staticFileSystemAdapter.addFile(filePath);
-        if (state.isSourceFile) {
-          terminal.writeVerboseLine(`Detected change to source file "${filePath}"`);
-          containsSourceFiles = true;
-        }
+
+        terminal.writeVerboseLine(`Detected change to source file "${filePath}"`);
       }
     }
 
     // Finally, yield only if any source files were modified to avoid re-triggering when output
     // files are written. However, we will still update the change state in that case.
-    if (containsSourceFiles) {
+    if (options.changedFiles.size) {
       yield;
     }
   }
@@ -498,22 +468,67 @@ export class HeftActionRunner {
     const terminal: ITerminal = this._terminal;
     const watcherCwd: string = this._heftConfiguration.buildFolderPath;
 
+    const cli: Interface = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true
+    });
+
+    const cliCancellationTokenSource: CancellationTokenSource = new CancellationTokenSource();
+    const cliCancellationToken: CancellationToken = cliCancellationTokenSource.token;
+
+    let forceShutdown: boolean = false;
+    cli.on('SIGINT', () => {
+      if (forceShutdown) {
+        process.exit(1);
+      }
+      forceShutdown = true;
+      cliCancellationTokenSource.cancel();
+      terminal.writeWarningLine(`SIGINT detected. Shutting down.`);
+    });
+
+    const git: GitUtilities = new GitUtilities(this._heftConfiguration.buildFolderPath);
+
+    // Create a gitignore filter to test if a file is ignored by git. If it is, it will be counted
+    // as a non-source file. If it is not, it will be counted as a source file. If git is not present,
+    // all files will be counted as source files and must manually be ignored by providing a glob to
+    // the ignoredSourceFileGlobs option.
+    const isFileTracked: GitignoreFilterFn = (await git.tryCreateGitignoreFilterAsync()) || (() => true);
+
+    const additionalIgnore: Ignore = ignore();
+    additionalIgnore.add('node_modules');
+    for (const ignoreGlob of this._internalHeftSession.watchOptions.ignoredSourceFileGlobs) {
+      additionalIgnore.add(ignoreGlob);
+    }
+    const normalizedCwd: string = Path.convertToSlashes(watcherCwd);
+    const additionalIgnoreFn: (filePath: string) => boolean = additionalIgnore.createFilter();
+
     const watcher: chokidar.FSWatcher = await runAndMeasureAsync(
       async () => {
         const chokidarPkg: typeof chokidar = await this._ensureChokidarLoadedAsync();
-        const ignoreGlobs: string[] = ['node_modules'].concat(
-          this._internalHeftSession.watchOptions.ignoredSourceFileGlobs
-        );
+        const ignoreFn: (filePath: string) => boolean = (filePath: string) => {
+          if (!isFileTracked(filePath)) {
+            return true;
+          }
+
+          if (filePath === normalizedCwd) {
+            return false;
+          }
+
+          const relativePath: string = filePath.slice(normalizedCwd.length + 1);
+
+          return !additionalIgnoreFn(relativePath);
+        };
 
         const watcherReadyPromise: Promise<chokidar.FSWatcher> = new Promise(
           (resolve: (watcher: chokidar.FSWatcher) => void, reject: (error: Error) => void) => {
-            const watcher: chokidar.FSWatcher = chokidarPkg.watch(this._heftConfiguration.buildFolderPath, {
+            const watcher: chokidar.FSWatcher = chokidarPkg.watch(`${watcherCwd}/src`, {
               persistent: true,
               // All watcher-returned file paths will be relative to the build folder. Chokidar on Windows
               // has some issues with watching when not using a cwd, causing the 'ready' event to never be
               // emitted, so we will have to manually resolve the absolute paths in the change handler.
               cwd: watcherCwd,
-              ignored: ignoreGlobs,
+              ignored: ignoreFn,
               // We use the stats object to generate the change file state, so ensure we have it in all
               // cases
               alwaysStat: true,
@@ -538,37 +553,7 @@ export class HeftActionRunner {
       () => 'Finished starting watcher',
       terminal.writeLine.bind(terminal)
     );
-
-    const cli: Interface = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: true
-    });
-
-    const cliCancellationTokenSource: CancellationTokenSource = new CancellationTokenSource();
-    const cliCancellationToken: CancellationToken = cliCancellationTokenSource.token;
-
-    cli.on('SIGINT', () => {
-      cliCancellationTokenSource.cancel();
-      terminal.writeWarningLine(`SIGINT detected. Shutting down.`);
-    });
-
-    const git: GitUtilities = new GitUtilities(this._heftConfiguration.buildFolderPath);
     const changedFiles: Map<string, IChangedFileState> = new Map();
-    const staticFileSystemAdapter: StaticFileSystemAdapter = new StaticFileSystemAdapter();
-    const globChangedFilesAsyncFn: GlobFn = async (pattern: string | string[], options?: IGlobOptions) => {
-      // Use the sync method. Since the static file system adapter operations are all done in memory,
-      // there is no need to use the async method and we can avoid the overhead going async.
-      return Promise.resolve(
-        glob.sync(pattern, {
-          fs: staticFileSystemAdapter,
-          cwd: options?.cwd,
-          absolute: options?.absolute,
-          ignore: options?.ignore,
-          dot: options?.dot
-        })
-      );
-    };
 
     // Create the async iterator. This will yield void when a changed source file is encountered, giving
     // us a chance to kill the current build and start a new one.
@@ -580,7 +565,6 @@ export class HeftActionRunner {
           watcher,
           git,
           changedFiles,
-          staticFileSystemAdapter,
           watchOptions: this._internalHeftSession.watchOptions,
           cancellationToken: cliCancellationToken
         });
@@ -596,7 +580,6 @@ export class HeftActionRunner {
 
     // The file event listener is used to allow task operations to wait for a file change before
     // progressing to the next task.
-    const fileEventListener: FileEventListener = new FileEventListener(watcher);
     let isFirstRun: boolean = true;
 
     // eslint-disable-next-line no-constant-condition
@@ -621,9 +604,7 @@ export class HeftActionRunner {
       const executePromise: Promise<false> = this._executeOnceAsync(
         isFirstRun,
         cancellationToken,
-        changedFiles,
-        globChangedFilesAsyncFn,
-        fileEventListener
+        changedFiles
       ).then(() => false);
 
       try {
@@ -645,9 +626,6 @@ export class HeftActionRunner {
           // will continue to use the existing map if the build is not complete, since it may contain
           // unprocessed source changes for earlier tasks. Then, await the next source file change.
           changedFiles.clear();
-          // Remove all files from the static file system adapter, since we only use it to glob for
-          // the existence of files in the changedFiles map.
-          staticFileSystemAdapter.removeAllFiles();
           // Mark the first run as completed, to ensure that copy incremental copy operations are now
           // enabled.
           isFirstRun = false;
@@ -683,23 +661,16 @@ export class HeftActionRunner {
   private async _executeOnceAsync(
     isFirstRun: boolean = true,
     cancellationToken?: CancellationToken,
-    changedFiles?: Map<string, IChangedFileState>,
-    globChangedFilesAsyncFn?: GlobFn,
-    fileEventListener?: FileEventListener
+    changedFiles?: Map<string, IChangedFileState>
   ): Promise<void> {
     cancellationToken = cancellationToken || new CancellationToken();
-    const operations: Set<Operation> = this._generateOperations(
-      isFirstRun,
-      cancellationToken,
-      changedFiles,
-      globChangedFilesAsyncFn,
-      fileEventListener
-    );
+    const operations: Set<Operation> = this._generateOperations(isFirstRun, cancellationToken);
     const operationExecutionManagerOptions: IOperationExecutionManagerOptions = {
       loggingManager: this._loggingManager,
       terminal: this._terminal,
       // TODO: Allow for running non-parallelized operations.
-      parallelism: undefined
+      parallelism: undefined,
+      changedFiles
     };
     const executionManager: OperationExecutionManager = new OperationExecutionManager(
       operations,
@@ -717,13 +688,7 @@ export class HeftActionRunner {
     );
   }
 
-  private _generateOperations(
-    isFirstRun: boolean,
-    cancellationToken: CancellationToken,
-    changedFiles?: Map<string, IChangedFileState>,
-    globChangedFilesAsyncFn?: GlobFn,
-    fileEventListener?: FileEventListener
-  ): Set<Operation> {
+  private _generateOperations(isFirstRun: boolean, cancellationToken: CancellationToken): Set<Operation> {
     const { selectedPhases } = this._action;
     const {
       defaultParameters: { clean, cleanCache }
@@ -774,10 +739,7 @@ export class HeftActionRunner {
           task,
           operations,
           isFirstRun,
-          cancellationToken,
-          changedFiles,
-          globChangedFilesAsyncFn,
-          fileEventListener
+          cancellationToken
         );
         // Set the phase operation as a dependency of the task operation to ensure the phase operation runs first
         taskOperation.dependencies.add(phaseOperation);
@@ -791,15 +753,7 @@ export class HeftActionRunner {
         // Set all dependency tasks as dependencies of the task operation
         for (const dependencyTask of task.dependencyTasks) {
           taskOperation.dependencies.add(
-            this._getOrCreateTaskOperation(
-              dependencyTask,
-              operations,
-              isFirstRun,
-              cancellationToken,
-              changedFiles,
-              globChangedFilesAsyncFn,
-              fileEventListener
-            )
+            this._getOrCreateTaskOperation(dependencyTask, operations, isFirstRun, cancellationToken)
           );
         }
 
@@ -858,9 +812,7 @@ export class HeftActionRunner {
     operations: Map<string, Operation>,
     isFirstRun: boolean,
     cancellationToken: CancellationToken,
-    changedFiles?: Map<string, IChangedFileState>,
-    globChangedFilesAsyncFn?: GlobFn,
-    fileEventListener?: FileEventListener
+    changedFiles?: Map<string, IChangedFileState>
   ): Operation {
     const key: string = `${task.parentPhase.phaseName}.${task.taskName}`;
 
@@ -872,10 +824,7 @@ export class HeftActionRunner {
           internalHeftSession: this._internalHeftSession,
           task,
           isFirstRun,
-          cancellationToken,
-          changedFiles,
-          globChangedFilesAsyncFn,
-          fileEventListener
+          cancellationToken
         })
       });
       operations.set(key, operation);

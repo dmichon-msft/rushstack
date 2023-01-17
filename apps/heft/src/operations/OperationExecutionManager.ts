@@ -10,11 +10,13 @@ import { IOperationExecutionRecordContext, OperationExecutionRecord } from './Op
 import type { Operation } from './Operation';
 import { OperationGroupRecord } from './OperationGroupRecord';
 import type { LoggingManager } from '../pluginFramework/logging/LoggingManager';
+import { IChangedFileState } from '../pluginFramework/HeftTaskSession';
 
 export interface IOperationExecutionManagerOptions {
   parallelism: string | undefined;
   terminal: ITerminal;
   loggingManager: LoggingManager;
+  changedFiles?: ReadonlyMap<string, IChangedFileState>;
 }
 
 /**
@@ -36,7 +38,7 @@ export class OperationExecutionManager {
   private _hasReportedFailures: boolean;
 
   public constructor(operations: Set<Operation>, options: IOperationExecutionManagerOptions) {
-    const { parallelism, terminal, loggingManager } = options;
+    const { parallelism, terminal, loggingManager, changedFiles } = options;
     this._hasReportedFailures = false;
     this._terminal = terminal;
 
@@ -84,6 +86,17 @@ export class OperationExecutionManager {
       }
     }
     this._executionRecords = new Set(executionRecords.values());
+    if (changedFiles && changedFiles.size > 0) {
+      for (const record of this._executionRecords) {
+        if (record.dependencies.size === 0) {
+          for (const [filePath, state] of changedFiles) {
+            // Record source files into initial operations.
+            // All others will propagate during execution.
+            record.changedFiles.set(filePath, state);
+          }
+        }
+      }
+    }
 
     const numberOfCores: number = os.cpus().length;
 
@@ -186,6 +199,12 @@ export class OperationExecutionManager {
       for (const item of record.consumers) {
         // Remove this operation from the dependencies, to unblock the scheduler
         item.dependencies.delete(record);
+        // Propagate emitted file data
+        if (record.changedFiles.size > 0) {
+          for (const [filePath, version] of record.changedFiles) {
+            item.changedFiles.set(filePath, version);
+          }
+        }
       }
     };
 

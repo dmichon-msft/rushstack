@@ -144,5 +144,11 @@
         }
       }
     }
+  },
+
+  "globalPeerDependencyRules": {
+    "allowedVersions": {
+      "@rushstack/heft": "0.49.0-rc.2"
+    }
   }
 }

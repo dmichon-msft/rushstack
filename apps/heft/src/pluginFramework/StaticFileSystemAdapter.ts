@@ -196,9 +196,13 @@ export class StaticFileSystemAdapter implements FileSystemAdapter {
       while ((parentPath = path.dirname(childPath)) !== childPath) {
         const existingParentEntry: IVirtualFileSystemEntry | undefined = this._directoryMap.get(parentPath);
         if (existingParentEntry) {
-          // If there is already an existing parent entry, add the child entry to the existing children set
-          // and exit early, since the parent entries already exist.
-          existingParentEntry.children!.add(childEntry);
+          if (existingParentEntry.children) {
+            // If there is already an existing parent entry, add the child entry to the existing children set
+            // and exit early, since the parent entries already exist.
+            existingParentEntry.children.add(childEntry);
+          } else {
+            throw new Error(`Expected to find parent entry at ${parentPath} for ${childPath}`);
+          }
           break;
         } else {
           // If there is no existing parent entry, create a new entry with the child entry as the only child.

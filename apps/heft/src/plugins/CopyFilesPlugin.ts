@@ -12,9 +12,12 @@ import type { IHeftTaskPlugin } from '../pluginFramework/IHeftPlugin';
 import type {
   IHeftTaskSession,
   IHeftTaskRunHookOptions,
-  IHeftTaskRunIncrementalHookOptions
+  IHeftTaskRunIncrementalHookOptions,
+  IChangedFileState
 } from '../pluginFramework/HeftTaskSession';
 import type { IScopedLogger } from '../pluginFramework/logging/ScopedLogger';
+
+const NULL_RESULT: ReadonlyMap<string, IChangedFileState> = new Map();
 
 /**
  * Used to specify a selection of files to copy from a specific source folder to one
@@ -71,9 +74,12 @@ interface ICopyDescriptor {
   hardlink: boolean;
 }
 
-export async function copyFilesAsync(copyOperations: ICopyOperation[], logger: IScopedLogger): Promise<void> {
+export async function copyFilesAsync(
+  copyOperations: ICopyOperation[],
+  logger: IScopedLogger
+): Promise<ReadonlyMap<string, IChangedFileState>> {
   const copyDescriptors: ICopyDescriptor[] = await _getCopyDescriptorsAsync(copyOperations, glob);
-  await _copyFilesInnerAsync(copyDescriptors, logger);
+  return _copyFilesInnerAsync(copyDescriptors, logger);
 }
 
 export async function copyIncrementalFilesAsync(
@@ -81,13 +87,13 @@ export async function copyIncrementalFilesAsync(
   globChangedFilesAsyncFn: GlobFn,
   isFirstRun: boolean,
   logger: IScopedLogger
-): Promise<void> {
+): Promise<ReadonlyMap<string, IChangedFileState>> {
   const copyDescriptors: ICopyDescriptor[] = await _getCopyDescriptorsAsync(
     copyOperations,
     // Use the normal globber if it is the first run, to ensure that non-watched files are copied
     isFirstRun ? glob : globChangedFilesAsyncFn
   );
-  await _copyFilesInnerAsync(copyDescriptors, logger);
+  return _copyFilesInnerAsync(copyDescriptors, logger);
 }
 
 async function _getCopyDescriptorsAsync(
@@ -190,37 +196,41 @@ async function _getCopyDescriptorsAsync(
 async function _copyFilesInnerAsync(
   copyDescriptors: ICopyDescriptor[],
   logger: IScopedLogger
-): Promise<void> {
+): Promise<ReadonlyMap<string, IChangedFileState>> {
   if (copyDescriptors.length === 0) {
-    return;
+    return NULL_RESULT;
   }
+
+  const results: Map<string, IChangedFileState> = new Map();
 
   let copiedFolderOrFileCount: number = 0;
   let linkedFileCount: number = 0;
   await Async.forEachAsync(
     copyDescriptors,
     async (copyDescriptor: ICopyDescriptor) => {
+      const { sourcePath, destinationPath } = copyDescriptor;
+
       if (copyDescriptor.hardlink) {
         linkedFileCount++;
         await FileSystem.createHardLinkAsync({
-          linkTargetPath: copyDescriptor.sourcePath,
-          newLinkPath: copyDescriptor.destinationPath,
+          linkTargetPath: sourcePath,
+          newLinkPath: destinationPath,
           alreadyExistsBehavior: AlreadyExistsBehavior.Overwrite
         });
-        logger.terminal.writeVerboseLine(
-          `Linked "${copyDescriptor.sourcePath}" to "${copyDescriptor.destinationPath}".`
-        );
+        logger.terminal.writeVerboseLine(`Linked "${sourcePath}" to "${destinationPath}".`);
       } else {
         copiedFolderOrFileCount++;
         await FileSystem.copyFilesAsync({
-          sourcePath: copyDescriptor.sourcePath,
-          destinationPath: copyDescriptor.destinationPath,
+          sourcePath: sourcePath,
+          destinationPath: destinationPath,
           alreadyExistsBehavior: AlreadyExistsBehavior.Overwrite
         });
-        logger.terminal.writeVerboseLine(
-          `Copied "${copyDescriptor.sourcePath}" to "${copyDescriptor.destinationPath}".`
-        );
+        logger.terminal.writeVerboseLine(`Copied "${sourcePath}" to "${destinationPath}".`);
       }
+      results.set(destinationPath, {
+        isSourceFile: false,
+        version: sourcePath
+      });
     },
     { concurrency: Constants.maxParallelism }
   );
@@ -230,6 +240,8 @@ async function _copyFilesInnerAsync(
     `Copied ${copiedFolderOrFileCount} folder${folderOrFilesPlural} or file${folderOrFilesPlural} and ` +
       `linked ${linkedFileCount} file${linkedFileCount === 1 ? '' : 's'}`
   );
+
+  return results;
 }
 
 function _resolveCopyOperationPaths(

@@ -8,7 +8,8 @@ import type {
   IHeftPlugin,
   IScopedLogger,
   IHeftTaskRunHookOptions,
-  IHeftTaskRunIncrementalHookOptions
+  IHeftTaskRunIncrementalHookOptions,
+  IChangedFileState
 } from '@rushstack/heft';
 import { ConfigurationFile } from '@rushstack/heft-config-file';
 
@@ -91,7 +92,8 @@ export default class SassPlugin implements IHeftPlugin {
     }
 
     taskSession.logger.terminal.writeLine('Generating sass typings...');
-    await sassProcessor.generateTypingsAsync(changedRelativeFilePaths);
+    const outputs: ReadonlySet<string> = await sassProcessor.generateTypingsAsync(changedRelativeFilePaths);
+    runIncrementalOptions?.recordChangedFiles(bindToNow(outputs));
     taskSession.logger.terminal.writeLine('Generated sass typings');
   }
 
@@ -169,5 +171,16 @@ export default class SassPlugin implements IHeftPlugin {
     }
 
     return this._sassConfiguration;
+  }
+}
+
+function* bindToNow(outputs: Iterable<string>): Iterable<[string, IChangedFileState]> {
+  const state: IChangedFileState = {
+    isSourceFile: false,
+    version: Date.now().toString(16)
+  };
+
+  for (const output of outputs) {
+    yield [output, state];
   }
 }

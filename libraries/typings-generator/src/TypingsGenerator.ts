@@ -129,8 +129,9 @@ export class TypingsGenerator {
    *
    * @param filePaths - The input files to process, relative to the source folder. If not provided,
    * all input files will be processed.
+   * @returns The set of emitted files, as absolute paths
    */
-  public async generateTypingsAsync(filePaths?: string[]): Promise<void> {
+  public async generateTypingsAsync(filePaths?: string[]): Promise<ReadonlySet<string>> {
     if (!filePaths?.length) {
       filePaths = await LegacyAdapters.convertCallbackToPromise(glob, this.inputFileGlob, {
         cwd: this.sourceFolderPath,
@@ -139,7 +140,7 @@ export class TypingsGenerator {
         nodir: true
       });
     }
-    await this._reprocessFiles(filePaths);
+    return this._reprocessFiles(filePaths);
   }
 
   public async runWatcherAsync(): Promise<void> {
@@ -238,7 +239,7 @@ export class TypingsGenerator {
     return additionalPaths ? [...typingsFilePaths, ...additionalPaths] : Array.from(typingsFilePaths);
   }
 
-  private async _reprocessFiles(relativePaths: Iterable<string>): Promise<void> {
+  private async _reprocessFiles(relativePaths: Iterable<string>): Promise<ReadonlySet<string>> {
     // Build a queue of resolved paths
     const toProcess: Set<string> = new Set();
     for (const rawPath of relativePaths) {
@@ -247,6 +248,8 @@ export class TypingsGenerator {
       this._relativePaths.set(resolvedPath, relativePath);
       toProcess.add(resolvedPath);
     }
+
+    const outputs: Set<string> = new Set();
 
     // Expand out all registered consumers, according to the current dependency graph
     for (const file of toProcess) {
@@ -267,9 +270,14 @@ export class TypingsGenerator {
           throw new Error(`Missing relative path for file ${resolvedPath}`);
         }
         await this._parseFileAndGenerateTypingsAsync(relativePath, resolvedPath);
+        for (const output of this.getOutputFilePaths(relativePath)) {
+          outputs.add(output);
+        }
       },
       { concurrency: 20 }
     );
+
+    return outputs;
   }
 
   private async _parseFileAndGenerateTypingsAsync(relativePath: string, resolvedPath: string): Promise<void> {

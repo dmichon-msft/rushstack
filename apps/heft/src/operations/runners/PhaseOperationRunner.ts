@@ -8,7 +8,7 @@ import { deleteFilesAsync, type IDeleteOperation } from '../../plugins/DeleteFil
 import type { IOperationRunner, IOperationRunnerContext } from '../IOperationRunner';
 import type { HeftPhase } from '../../pluginFramework/HeftPhase';
 import type { HeftPhaseSession } from '../../pluginFramework/HeftPhaseSession';
-import type { HeftTaskSession } from '../../pluginFramework/HeftTaskSession';
+import type { HeftTaskSession, IChangedFileState } from '../../pluginFramework/HeftTaskSession';
 import type { InternalHeftSession } from '../../pluginFramework/InternalHeftSession';
 
 export interface IPhaseOperationRunnerOptions {
@@ -65,7 +65,15 @@ export class PhaseOperationRunner implements IOperationRunner {
 
       // Delete the files if any were specified
       if (deleteOperations.length) {
-        await deleteFilesAsync(deleteOperations, cleanLogger.terminal);
+        const deletions: ReadonlyMap<string, IChangedFileState> = await deleteFilesAsync(
+          deleteOperations,
+          cleanLogger.terminal
+        );
+        if (deletions.size) {
+          for (const [filePath, state] of deletions) {
+            context.changedFiles.set(filePath, state);
+          }
+        }
       }
 
       cleanLogger.terminal.writeVerboseLine(`Finished clean (${performance.now() - startTime}ms)`);

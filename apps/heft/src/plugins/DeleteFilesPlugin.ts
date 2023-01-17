@@ -9,7 +9,11 @@ import { Constants } from '../utilities/Constants';
 import { getFilePathsAsync, type IFileSelectionSpecifier } from './FileGlobSpecifier';
 import type { HeftConfiguration } from '../configuration/HeftConfiguration';
 import type { IHeftTaskPlugin } from '../pluginFramework/IHeftPlugin';
-import type { IHeftTaskSession, IHeftTaskRunHookOptions } from '../pluginFramework/HeftTaskSession';
+import type {
+  IHeftTaskSession,
+  IHeftTaskRunHookOptions,
+  IChangedFileState
+} from '../pluginFramework/HeftTaskSession';
 
 /**
  * Used to specify a selection of source files to delete from the specified source folder.
@@ -51,12 +55,18 @@ async function _getPathsToDeleteAsync(deleteOperations: Iterable<IDeleteOperatio
 export async function deleteFilesAsync(
   deleteOperations: IDeleteOperation[],
   terminal: ITerminal
-): Promise<void> {
+): Promise<ReadonlyMap<string, IChangedFileState>> {
   const pathsToDelete: Set<string> = await _getPathsToDeleteAsync(deleteOperations);
-  await _deleteFilesInnerAsync(pathsToDelete, terminal);
+  return _deleteFilesInnerAsync(pathsToDelete, terminal);
 }
 
-async function _deleteFilesInnerAsync(pathsToDelete: Set<string>, terminal: ITerminal): Promise<void> {
+const DELETED_STATE: IChangedFileState = { isSourceFile: false, version: undefined };
+
+async function _deleteFilesInnerAsync(
+  pathsToDelete: Set<string>,
+  terminal: ITerminal
+): Promise<ReadonlyMap<string, IChangedFileState>> {
+  const results: Map<string, IChangedFileState> = new Map();
   let deletedFiles: number = 0;
   let deletedFolders: number = 0;
   await Async.forEachAsync(
@@ -65,6 +75,7 @@ async function _deleteFilesInnerAsync(pathsToDelete: Set<string>, terminal: ITer
       try {
         await FileSystem.deleteFileAsync(pathToDelete, { throwIfNotExists: true });
         terminal.writeVerboseLine(`Deleted "${pathToDelete}".`);
+        results.set(pathToDelete, DELETED_STATE);
         deletedFiles++;
       } catch (error) {
         // If it doesn't exist, we can ignore the error.
@@ -75,6 +86,7 @@ async function _deleteFilesInnerAsync(pathsToDelete: Set<string>, terminal: ITer
           if (FileSystem.isUnlinkNotPermittedError(error) || FileSystem.isDirectoryError(error)) {
             await FileSystem.deleteFolderAsync(pathToDelete);
             terminal.writeVerboseLine(`Deleted folder "${pathToDelete}".`);
+            results.set(pathToDelete, DELETED_STATE);
             deletedFolders++;
           } else {
             throw error;
@@ -91,6 +103,8 @@ async function _deleteFilesInnerAsync(pathsToDelete: Set<string>, terminal: ITer
         `and ${deletedFolders} folder${deletedFolders !== 1 ? 's' : ''}`
     );
   }
+
+  return results;
 }
 
 function _resolveDeleteOperationPaths(

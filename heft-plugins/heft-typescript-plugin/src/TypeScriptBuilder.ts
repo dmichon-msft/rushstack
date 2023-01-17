@@ -172,7 +172,9 @@ export class TypeScriptBuilder {
     this._typescriptTerminal = configuration.scopedLogger.terminal;
   }
 
-  public async invokeAsync(changedFiles?: ReadonlyMap<string, IChangedFileState> | undefined): Promise<void> {
+  public async invokeAsync(
+    changedFiles?: ReadonlyMap<string, IChangedFileState> | undefined
+  ): Promise<ReadonlyMap<string, IChangedFileState>> {
     if (!this._tool) {
       // Determine the compiler version
       const compilerPackageJsonFilename: string = path.join(
@@ -305,9 +307,9 @@ export class TypeScriptBuilder {
     //   await this._runWatch(ts, measureTsPerformance);
     // } else if (this._useSolutionBuilder) {
     if (this._useSolutionBuilder) {
-      this._runSolutionBuild(this._tool);
+      return this._runSolutionBuild(this._tool);
     } else {
-      await this._runBuildAsync(this._tool);
+      return await this._runBuildAsync(this._tool);
     }
   }
 
@@ -341,8 +343,10 @@ export class TypeScriptBuilder {
   //   });
   // }
 
-  public async _runBuildAsync(tool: ITypeScriptTool): Promise<void> {
+  public async _runBuildAsync(tool: ITypeScriptTool): Promise<ReadonlyMap<string, IChangedFileState>> {
     const { ts, measureSync: measureTsPerformance, measureAsync: measureTsPerformanceAsync } = tool;
+
+    const changes: Map<string, IChangedFileState> = new Map();
 
     //#region CONFIGURE
     const {
@@ -425,6 +429,15 @@ export class TypeScriptBuilder {
 
     this._logEmitPerformance(ts);
 
+    const fileState: IChangedFileState = {
+      isSourceFile: false,
+      version: Date.now().toString(16)
+    };
+
+    for (const { filePath } of emitResult.filesToWrite) {
+      changes.set(filePath, fileState);
+    }
+
     //#region FINAL_ANALYSIS
     // Need to ensure that we include emit diagnostics, since they might not be part of the other sets
     const rawDiagnostics: TTypescript.Diagnostic[] = [...preDiagnostics, ...emitResult.diagnostics];
@@ -453,12 +466,16 @@ export class TypeScriptBuilder {
     ts.performance.disable();
     ts.performance.enable();
     this._configuration.emitChangedFilesCallback(tsProgram, emitResult.changedSourceFiles);
+
+    return changes;
   }
 
-  public _runSolutionBuild(tool: ITypeScriptTool): void {
+  public _runSolutionBuild(tool: ITypeScriptTool): ReadonlyMap<string, IChangedFileState> {
     this._typescriptTerminal.writeVerboseLine(`Using solution mode`);
 
     const { ts, measureSync } = tool;
+
+    const changes: Map<string, IChangedFileState> = new Map();
 
     try {
       //#region CONFIGURE
@@ -519,6 +536,8 @@ export class TypeScriptBuilder {
     } finally {
       EmitFilesPatch.uninstall(ts);
     }
+
+    return changes;
   }
 
   private _logDiagnostics(ts: ExtendedTypeScript, rawDiagnostics: readonly TTypescript.Diagnostic[]): void {

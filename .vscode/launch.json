@@ -40,6 +40,22 @@
 			"internalConsoleOptions": "neverOpen"
 		},
 		{
+			"type": "node",
+			"request": "launch",
+			"name": "Debug heft build-watch for selected project",
+			"cwd": "${fileDirname}",
+			"runtimeArgs": [
+				"--inspect-brk",
+				"${workspaceFolder}/apps/heft/lib/start.js",
+				"--debug",
+				"build-watch"
+			],
+			"skipFiles": ["<node_internals>/**"],
+			"outFiles": [],
+			"console": "integratedTerminal",
+			"internalConsoleOptions": "neverOpen"
+		},
+		{
 			"name": "Attach",
 			"type": "node",
 			"request": "attach",

@@ -5,6 +5,7 @@ import type { ITerminal } from '@rushstack/node-core-library';
 
 import type { OperationStatus } from './OperationStatus';
 import type { LoggingManager } from '../pluginFramework/logging/LoggingManager';
+import { IChangedFileState } from '../pluginFramework/HeftTaskSession';
 
 /**
  * Information passed to the executing `IOperationRunner`
@@ -14,6 +15,8 @@ import type { LoggingManager } from '../pluginFramework/logging/LoggingManager';
 export interface IOperationRunnerContext {
   terminal: ITerminal;
   loggingManager: LoggingManager;
+
+  changedFiles: Map<string, IChangedFileState>;
 }
 
 /**

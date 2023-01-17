@@ -12,7 +12,8 @@ import type {
   IHeftTaskRunHookOptions,
   IHeftTaskRunIncrementalHookOptions,
   ICopyOperation,
-  IIncrementalCopyOperation
+  IIncrementalCopyOperation,
+  IChangedFileState
 } from '@rushstack/heft';
 
 import { TypeScriptBuilder, ITypeScriptBuilderConfiguration } from './TypeScriptBuilder';
@@ -268,7 +269,10 @@ export default class TypeScriptPlugin implements IHeftTaskPlugin {
         }
 
         if (incrementalBuilder) {
-          await incrementalBuilder.invokeAsync(runIncrementalOptions.changedFiles);
+          const changes: ReadonlyMap<string, IChangedFileState> = await incrementalBuilder.invokeAsync(
+            runIncrementalOptions.changedFiles
+          );
+          runIncrementalOptions.recordChangedFiles(changes);
         }
 
         // TODO: We should consider maybe only doing one copy of static assets and pointing

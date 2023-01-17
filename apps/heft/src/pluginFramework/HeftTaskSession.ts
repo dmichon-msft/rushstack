@@ -201,6 +201,14 @@ export interface IHeftTaskRunIncrementalHookOptions extends IHeftTaskRunHookOpti
    * @beta
    */
   readonly cancellationToken: CancellationToken;
+
+  /**
+   * Record the files that were written by the `run` hook. This information will be forwarded to
+   * tasks that depend on this task as part of the `changedFiles` field.
+   *
+   * @public
+   */
+  readonly recordChangedFiles: (fileVersions: Iterable<[string, IChangedFileState]>) => void;
 }
 
 export interface IHeftTaskSessionOptions extends IHeftPhaseSessionOptions {

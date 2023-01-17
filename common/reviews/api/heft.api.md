@@ -219,6 +219,7 @@ export interface IHeftTaskRunIncrementalHookOptions extends IHeftTaskRunHookOpti
     readonly cancellationToken: CancellationToken;
     readonly changedFiles: ReadonlyMap<string, IChangedFileState>;
     readonly globChangedFilesAsync: GlobFn;
+    readonly recordChangedFiles: (fileVersions: Iterable<[string, IChangedFileState]>) => void;
 }
 
 // @public
