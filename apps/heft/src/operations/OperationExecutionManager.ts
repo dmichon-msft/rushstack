@@ -11,12 +11,13 @@ import type { Operation } from './Operation';
 import { OperationGroupRecord } from './OperationGroupRecord';
 import type { LoggingManager } from '../pluginFramework/logging/LoggingManager';
 import { IChangedFileState } from '../pluginFramework/HeftTaskSession';
+import { ITimeData } from '../utilities/DirectoryWatcher';
 
 export interface IOperationExecutionManagerOptions {
   parallelism: string | undefined;
   terminal: ITerminal;
   loggingManager: LoggingManager;
-  changedFiles?: ReadonlyMap<string, IChangedFileState>;
+  fsObjectVersions?: ITimeData;
 }
 
 /**
@@ -38,7 +39,7 @@ export class OperationExecutionManager {
   private _hasReportedFailures: boolean;
 
   public constructor(operations: Set<Operation>, options: IOperationExecutionManagerOptions) {
-    const { parallelism, terminal, loggingManager, changedFiles } = options;
+    const { parallelism, terminal, loggingManager, fsObjectVersions } = options;
     this._hasReportedFailures = false;
     this._terminal = terminal;
 
@@ -86,13 +87,14 @@ export class OperationExecutionManager {
       }
     }
     this._executionRecords = new Set(executionRecords.values());
-    if (changedFiles && changedFiles.size > 0) {
+    const fileVersions: ReadonlyMap<string, number> | undefined = fsObjectVersions?.files;
+    if (fileVersions && fileVersions.size > 0) {
       for (const record of this._executionRecords) {
         if (record.dependencies.size === 0) {
-          for (const [filePath, state] of changedFiles) {
+          for (const [filePath, state] of fileVersions) {
             // Record source files into initial operations.
             // All others will propagate during execution.
-            record.changedFiles.set(filePath, state);
+            record.fileVersions.set(filePath, state);
           }
         }
       }
@@ -200,9 +202,9 @@ export class OperationExecutionManager {
         // Remove this operation from the dependencies, to unblock the scheduler
         item.dependencies.delete(record);
         // Propagate emitted file data
-        if (record.changedFiles.size > 0) {
-          for (const [filePath, version] of record.changedFiles) {
-            item.changedFiles.set(filePath, version);
+        if (record.fileVersions.size > 0) {
+          for (const [filePath, version] of record.fileVersions) {
+            item.fileVersions.set(filePath, version);
           }
         }
       }

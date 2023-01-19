@@ -10,7 +10,6 @@ import type { Operation } from './Operation';
 import type { IOperationRunner, IOperationRunnerContext } from './IOperationRunner';
 import type { LoggingManager } from '../pluginFramework/logging/LoggingManager';
 import type { OperationGroupRecord } from './OperationGroupRecord';
-import { IChangedFileState } from '../pluginFramework/HeftTaskSession';
 
 export interface IOperationExecutionRecordOptions {
   operation: Operation;
@@ -87,7 +86,7 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
   public readonly weight: number;
   public readonly group: OperationGroupRecord | undefined;
 
-  public readonly changedFiles: Map<string, IChangedFileState> = new Map();
+  public readonly fileVersions: Map<string, string | number> = new Map();
 
   private readonly _context: IOperationExecutionRecordContext;
 

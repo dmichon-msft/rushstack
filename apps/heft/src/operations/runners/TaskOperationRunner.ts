@@ -87,7 +87,7 @@ export class TaskOperationRunner implements IOperationRunner {
       logger: { terminal }
     } = taskSession;
 
-    const { changedFiles } = context;
+    const { fileVersions: changedFiles } = context;
 
     // Store
     const localChanges: Map<string, IChangedFileState> = new Map();
@@ -166,14 +166,7 @@ export class TaskOperationRunner implements IOperationRunner {
           changedFiles.set(file, state);
         }
 
-        const fileOperationPromises: Promise<ReadonlyMap<string, IChangedFileState>>[] = [];
-
-        // Copy the files if any were specified. Avoid checking the cancellation token here
-        // since plugins may be tracking state changes and would have already considered
-        // added copy operations as "processed" during hook execution.
-        if (copyOperations.length) {
-          fileOperationPromises.push(copyFilesAsync(copyOperations, taskSession.logger));
-        }
+        const fileOperationPromises: Promise<void>[] = [];
 
         // Also incrementally copy files if any were specified. We know that globChangedFilesAsyncFn must
         // exist because incremental copy operations are only available in incremental mode.
@@ -195,7 +188,14 @@ export class TaskOperationRunner implements IOperationRunner {
         // Delete the files if any were specified. Avoid checking the cancellation token here
         // for the same reasons as above.
         if (deleteOperations.length) {
-          fileOperationPromises.push(deleteFilesAsync(deleteOperations, taskSession.logger.terminal));
+          fileOperationPromises.push(
+            deleteFilesAsync(deleteOperations, taskSession.logger.terminal).then(
+              (deletions: ReadonlySet<string>) => {
+                for (const deletion of deletions) {
+                }
+              }
+            )
+          );
         }
 
         if (fileOperationPromises.length) {
@@ -224,8 +224,8 @@ export class TaskOperationRunner implements IOperationRunner {
   }
 }
 
-function* iterateExistingFiles(sourceFiles: Iterable<[string, IChangedFileState]>): Iterable<string> {
-  for (const [filePath, { version }] of sourceFiles) {
+function* iterateExistingFiles(sourceFiles: Iterable<[string, string | number]>): Iterable<string> {
+  for (const [filePath, version] of sourceFiles) {
     if (version !== undefined) {
       yield filePath;
     }

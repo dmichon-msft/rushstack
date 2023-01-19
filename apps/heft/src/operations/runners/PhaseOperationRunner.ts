@@ -65,13 +65,10 @@ export class PhaseOperationRunner implements IOperationRunner {
 
       // Delete the files if any were specified
       if (deleteOperations.length) {
-        const deletions: ReadonlyMap<string, IChangedFileState> = await deleteFilesAsync(
-          deleteOperations,
-          cleanLogger.terminal
-        );
+        const deletions: ReadonlySet<string> = await deleteFilesAsync(deleteOperations, cleanLogger.terminal);
         if (deletions.size) {
-          for (const [filePath, state] of deletions) {
-            context.changedFiles.set(filePath, state);
+          for (const filePath of deletions) {
+            context.fileVersions.delete(filePath);
           }
         }
       }

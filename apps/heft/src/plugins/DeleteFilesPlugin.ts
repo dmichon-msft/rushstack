@@ -55,7 +55,7 @@ async function _getPathsToDeleteAsync(deleteOperations: Iterable<IDeleteOperatio
 export async function deleteFilesAsync(
   deleteOperations: IDeleteOperation[],
   terminal: ITerminal
-): Promise<ReadonlyMap<string, IChangedFileState>> {
+): Promise<ReadonlySet<string>> {
   const pathsToDelete: Set<string> = await _getPathsToDeleteAsync(deleteOperations);
   return _deleteFilesInnerAsync(pathsToDelete, terminal);
 }
@@ -65,8 +65,8 @@ const DELETED_STATE: IChangedFileState = { isSourceFile: false, version: undefin
 async function _deleteFilesInnerAsync(
   pathsToDelete: Set<string>,
   terminal: ITerminal
-): Promise<ReadonlyMap<string, IChangedFileState>> {
-  const results: Map<string, IChangedFileState> = new Map();
+): Promise<ReadonlySet<string>> {
+  const results: Set<string> = new Set();
   let deletedFiles: number = 0;
   let deletedFolders: number = 0;
   await Async.forEachAsync(
@@ -75,7 +75,7 @@ async function _deleteFilesInnerAsync(
       try {
         await FileSystem.deleteFileAsync(pathToDelete, { throwIfNotExists: true });
         terminal.writeVerboseLine(`Deleted "${pathToDelete}".`);
-        results.set(pathToDelete, DELETED_STATE);
+        results.add(pathToDelete);
         deletedFiles++;
       } catch (error) {
         // If it doesn't exist, we can ignore the error.
@@ -86,7 +86,7 @@ async function _deleteFilesInnerAsync(
           if (FileSystem.isUnlinkNotPermittedError(error) || FileSystem.isDirectoryError(error)) {
             await FileSystem.deleteFolderAsync(pathToDelete);
             terminal.writeVerboseLine(`Deleted folder "${pathToDelete}".`);
-            results.set(pathToDelete, DELETED_STATE);
+            results.add(pathToDelete);
             deletedFolders++;
           } else {
             throw error;
