@@ -31,8 +31,7 @@ export {
   IHeftTaskSession,
   IHeftTaskHooks,
   IHeftTaskRunHookOptions,
-  IHeftTaskRunIncrementalHookOptions,
-  IChangedFileState
+  IHeftTaskRunIncrementalHookOptions
 } from './pluginFramework/HeftTaskSession';
 
 export { ICopyOperation, IIncrementalCopyOperation } from './plugins/CopyFilesPlugin';

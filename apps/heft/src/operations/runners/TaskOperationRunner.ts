@@ -1,16 +1,13 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import * as path from 'path';
 import { performance } from 'perf_hooks';
-import { AlreadyReportedError, InternalError, LockFile, type ITerminal } from '@rushstack/node-core-library';
+import { AlreadyReportedError } from '@rushstack/node-core-library';
 
 import { OperationStatus } from '../OperationStatus';
-import { FileEventListener } from '../../utilities/FileEventListener';
 import { HeftTask } from '../../pluginFramework/HeftTask';
 import {
   copyFilesAsync,
-  copyIncrementalFilesAsync,
   type ICopyOperation,
   type IIncrementalCopyOperation
 } from '../../plugins/CopyFilesPlugin';
@@ -18,23 +15,15 @@ import { deleteFilesAsync, type IDeleteOperation } from '../../plugins/DeleteFil
 import type { IOperationRunner, IOperationRunnerContext } from '../IOperationRunner';
 import type {
   HeftTaskSession,
-  IChangedFileState,
   IHeftTaskRunHookOptions,
   IHeftTaskRunIncrementalHookOptions
 } from '../../pluginFramework/HeftTaskSession';
 import type { HeftPhaseSession } from '../../pluginFramework/HeftPhaseSession';
 import type { InternalHeftSession } from '../../pluginFramework/InternalHeftSession';
-import type { CancellationToken } from '../../pluginFramework/CancellationToken';
-import type { GlobFn, IGlobOptions } from '../../plugins/FileGlobSpecifier';
 
 export interface ITaskOperationRunnerOptions {
   internalHeftSession: InternalHeftSession;
   task: HeftTask;
-  isFirstRun: boolean;
-  cancellationToken: CancellationToken;
-  changedFiles?: Map<string, IChangedFileState>;
-  globChangedFilesAsyncFn?: GlobFn;
-  fileEventListener?: FileEventListener;
 }
 
 /**
@@ -56,35 +45,6 @@ export async function runAndMeasureAsync<T = void>(
   }
 }
 
-/**
- * Create a lockfile and wait for it to appear in the watcher. This is done to ensure that all watched
- * files created prior to the creation of the lockfile are ingested and available before running
- * subsequent tasks.
- */
-async function waitForLockFile(
-  lockFileFolder: string,
-  lockFileName: string,
-  fileEventListener: FileEventListener,
-  terminal: ITerminal
-): Promise<void> {
-  // Acquire the lock file and release it once the watcher has ingested it. Acquiring the lock file will
-  // delete any existing lock file if present and create a new one. The file event listener will listen
-  // for any event on the lock file and resolve the promise once it is seen, indicating that the watcher
-  // has caught up to file events prior to the creation/deletion of the lock file.
-  terminal.writeVerboseLine(`Synchronizing watcher using lock file ${JSON.stringify(lockFileName)}`);
-  const lockFilePath: string = LockFile.getLockFilePath(lockFileFolder, lockFileName);
-  const lockfileChangePromise: Promise<void> = fileEventListener.waitForEventAsync(lockFilePath);
-  const taskOperationLockFile: LockFile | undefined = LockFile.tryAcquire(lockFileFolder, lockFileName);
-  if (!taskOperationLockFile) {
-    throw new InternalError(
-      `Failed to acquire lock file ${JSON.stringify(lockFileName)}. Are multiple instances of ` +
-        'Heft running?'
-    );
-  }
-  await lockfileChangePromise;
-  taskOperationLockFile.release();
-}
-
 export class TaskOperationRunner implements IOperationRunner {
   private readonly _options: ITaskOperationRunnerOptions;
 
@@ -104,16 +64,17 @@ export class TaskOperationRunner implements IOperationRunner {
     const { parentPhase } = task;
     const phaseSession: HeftPhaseSession = internalHeftSession.getSessionForPhase(parentPhase);
     const taskSession: HeftTaskSession = phaseSession.getSessionForTask(task);
-    return await this._executeTaskAsync(taskSession);
+    return await this._executeTaskAsync(context, taskSession);
   }
 
-  private async _executeTaskAsync(taskSession: HeftTaskSession): Promise<OperationStatus> {
-    const { cancellationToken, changedFiles, globChangedFilesAsyncFn, fileEventListener, isFirstRun } =
-      this._options;
-    const {
-      hooks,
-      logger: { terminal }
-    } = taskSession;
+  private async _executeTaskAsync(
+    context: IOperationRunnerContext,
+    taskSession: HeftTaskSession
+  ): Promise<OperationStatus> {
+    const { cancellationToken, requestRun } = context;
+    const { hooks, logger } = taskSession;
+
+    const { terminal } = logger;
 
     // Exit the task early if cancellation is requested
     if (cancellationToken.isCancelled) {
@@ -121,10 +82,6 @@ export class TaskOperationRunner implements IOperationRunner {
     }
 
     const shouldRunIncremental: boolean = taskSession.parameters.watch && hooks.runIncremental.isUsed();
-    if (shouldRunIncremental && !changedFiles) {
-      // We must have the changed files map provided if we are running in incremental mode
-      throw new InternalError('changedFiles must be provided when watch is true');
-    }
 
     const shouldRun: boolean = hooks.run.isUsed() || shouldRunIncremental;
     if (!shouldRun) {
@@ -132,8 +89,8 @@ export class TaskOperationRunner implements IOperationRunner {
       return OperationStatus.NoOp;
     }
 
-    await runAndMeasureAsync(
-      async () => {
+    const result: OperationStatus = await runAndMeasureAsync(
+      async (): Promise<OperationStatus> => {
         // Create the options and provide a utility method to obtain paths to copy
         const copyOperations: ICopyOperation[] = [];
         const incrementalCopyOperations: IIncrementalCopyOperation[] = [];
@@ -149,7 +106,8 @@ export class TaskOperationRunner implements IOperationRunner {
             for (const deleteOperation of deleteOperationsToAdd) {
               deleteOperations.push(deleteOperation);
             }
-          }
+          },
+          cancellationToken
         };
 
         // Run the plugin run hook
@@ -166,9 +124,7 @@ export class TaskOperationRunner implements IOperationRunner {
                   }
                 }
               },
-              globChangedFilesAsync: globChangedFilesAsyncFn!,
-              changedFiles: changedFiles!,
-              cancellationToken: cancellationToken!
+              requestRun: requestRun!
             };
             await hooks.runIncremental.promise(runIncrementalHookOptions);
           } else {
@@ -177,31 +133,12 @@ export class TaskOperationRunner implements IOperationRunner {
         } catch (e) {
           // Log out using the task logger, and return an error status
           if (!(e instanceof AlreadyReportedError)) {
-            taskSession.logger.emitError(e as Error);
+            logger.emitError(e as Error);
           }
           return OperationStatus.Failure;
         }
 
         const fileOperationPromises: Promise<void>[] = [];
-
-        const globExistingChangedFilesFn: GlobFn = async (
-          pattern: string | string[],
-          options?: IGlobOptions
-        ) => {
-          // We expect specific options to be passed. If they aren't the provided options, we may not
-          // find the changed files in the changedFiles map.
-          if (!options?.absolute) {
-            throw new InternalError('Options provided to globExistingChangedFilesFn were not expected.');
-          }
-
-          const globbedChangedFiles: string[] = await globChangedFilesAsyncFn!(pattern, options);
-
-          // Filter out deletes, since we can't copy or delete an already deleted file
-          return globbedChangedFiles.filter((changedFile: string) => {
-            const changedFileState: IChangedFileState | undefined = changedFiles!.get(changedFile);
-            return changedFileState?.version !== undefined;
-          });
-        };
 
         // Copy the files if any were specified. Avoid checking the cancellation token here
         // since plugins may be tracking state changes and would have already considered
@@ -213,6 +150,7 @@ export class TaskOperationRunner implements IOperationRunner {
         // Also incrementally copy files if any were specified. We know that globChangedFilesAsyncFn must
         // exist because incremental copy operations are only available in incremental mode.
         if (incrementalCopyOperations.length) {
+          /**
           fileOperationPromises.push(
             copyIncrementalFilesAsync(
               incrementalCopyOperations,
@@ -221,28 +159,24 @@ export class TaskOperationRunner implements IOperationRunner {
               taskSession.logger
             )
           );
+          */
         }
 
         // Delete the files if any were specified. Avoid checking the cancellation token here
         // for the same reasons as above.
         if (deleteOperations.length) {
-          fileOperationPromises.push(deleteFilesAsync(deleteOperations, taskSession.logger.terminal));
+          fileOperationPromises.push(deleteFilesAsync(deleteOperations, terminal));
         }
 
         if (fileOperationPromises.length) {
           await Promise.all(fileOperationPromises);
         }
 
-        if (taskSession.parameters.watch) {
-          if (!fileEventListener) {
-            // The file event listener is used to watch for changes to the lockfile. Without it, watch mode could
-            // go out of sync.
-            throw new InternalError('fileEventListener must be provided when watch is true');
-          }
-          // The task temp folder is a unique and relevant name, so re-use it for the lock file name
-          const lockFileName: string = path.basename(taskSession.tempFolderPath);
-          await waitForLockFile(taskSession.tempFolderPath, lockFileName, fileEventListener, terminal);
+        if (logger.hasErrors) {
+          return OperationStatus.Failure;
         }
+
+        return OperationStatus.Success;
       },
       () => `Starting ${shouldRunIncremental ? 'incremental ' : ''}task execution`,
       () => {
@@ -254,6 +188,6 @@ export class TaskOperationRunner implements IOperationRunner {
 
     // Even if the entire process has completed, we should mark the operation as cancelled if
     // cancellation has been requested.
-    return cancellationToken.isCancelled ? OperationStatus.Cancelled : OperationStatus.Success;
+    return cancellationToken.isCancelled ? OperationStatus.Cancelled : result;
   }
 }

@@ -268,7 +268,7 @@ export default class TypeScriptPlugin implements IHeftTaskPlugin {
         }
 
         if (incrementalBuilder) {
-          await incrementalBuilder.invokeAsync(runIncrementalOptions.changedFiles);
+          await incrementalBuilder.invokeAsync(runIncrementalOptions.requestRun);
         }
 
         // TODO: We should consider maybe only doing one copy of static assets and pointing

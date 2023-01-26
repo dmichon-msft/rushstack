@@ -18,9 +18,7 @@ import type {
 
 import type { IWebpackConfiguration, IWebpackPluginAccessor } from './shared';
 import { WebpackConfigurationLoader } from './WebpackConfigurationLoader';
-
-type ExtendedCompiler = TWebpack.Compiler & { watching: TWebpack.Watching };
-type ExtendedMultiCompiler = TWebpack.MultiCompiler & { compilers: ExtendedCompiler[] };
+import { DeferredWatchFileSystem, OverrideNodeWatchFSPlugin } from './DeferredWatchFileSystem';
 
 export interface IWebpackPluginOptions {
   devConfigurationPath: string | undefined;
@@ -45,11 +43,11 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
   private _accessor: IWebpackPluginAccessor | undefined;
   private _isServeMode: boolean = false;
   private _webpack: typeof TWebpack | undefined;
-  private _webpackCompiler: ExtendedCompiler | ExtendedMultiCompiler | undefined;
+  private _webpackCompiler: TWebpack.Compiler | TWebpack.MultiCompiler | undefined;
   private _webpackConfiguration: IWebpackConfiguration | undefined | typeof UNINITIALIZED = UNINITIALIZED;
-  private _webpackWatchers: TWebpack.Watching[] | undefined;
   private _webpackCompilationDonePromise: Promise<void> | undefined;
   private _webpackCompilationDonePromiseResolveFn: (() => void) | undefined;
+  private _watchFileSystems: Set<DeferredWatchFileSystem> | undefined;
 
   public get accessor(): IWebpackPluginAccessor {
     if (!this._accessor) {
@@ -89,7 +87,7 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
     taskSession.hooks.runIncremental.tapPromise(
       PLUGIN_NAME,
       async (runOptions: IHeftTaskRunIncrementalHookOptions) => {
-        await this._runWebpackWatchAsync(taskSession, heftConfiguration, options);
+        await this._runWebpackWatchAsync(taskSession, heftConfiguration, options, runOptions.requestRun);
       }
     );
   }
@@ -97,7 +95,8 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
   private async _getWebpackConfigurationAsync(
     taskSession: IHeftTaskSession,
     heftConfiguration: HeftConfiguration,
-    options: IWebpackPluginOptions
+    options: IWebpackPluginOptions,
+    requestRun?: () => void
   ): Promise<IWebpackConfiguration | undefined> {
     if (this._webpackConfiguration === UNINITIALIZED) {
       // Obtain the webpack configuration by calling into the hook. If undefined
@@ -141,6 +140,20 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
           await this.accessor.hooks.onAfterConfigure.promise(webpackConfiguration);
         }
         this._webpackConfiguration = webpackConfiguration;
+
+        if (requestRun) {
+          const overrideWatchFSPlugin: OverrideNodeWatchFSPlugin = new OverrideNodeWatchFSPlugin(requestRun);
+          this._watchFileSystems = overrideWatchFSPlugin.fileSystems;
+          for (const config of Array.isArray(webpackConfiguration)
+            ? webpackConfiguration
+            : [webpackConfiguration]) {
+            if (!config.plugins) {
+              config.plugins = [overrideWatchFSPlugin];
+            } else {
+              config.plugins.unshift(overrideWatchFSPlugin);
+            }
+          }
+        }
       }
     }
     return this._webpackConfiguration;
@@ -157,7 +170,7 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
   private async _getWebpackCompilerAsync(
     taskSession: IHeftTaskSession,
     webpackConfiguration: IWebpackConfiguration
-  ): Promise<ExtendedCompiler | ExtendedMultiCompiler> {
+  ): Promise<TWebpack.Compiler | TWebpack.MultiCompiler> {
     if (!this._webpackCompiler) {
       const webpack: typeof TWebpack = await this._loadWebpackAsync();
       taskSession.logger.terminal.writeLine(`Using Webpack version ${webpack.version}`);
@@ -188,7 +201,7 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
     if (!webpackConfiguration) {
       return;
     }
-    const compiler: ExtendedCompiler | ExtendedMultiCompiler = await this._getWebpackCompilerAsync(
+    const compiler: TWebpack.Compiler | TWebpack.MultiCompiler = await this._getWebpackCompilerAsync(
       taskSession,
       webpackConfiguration
     );
@@ -198,7 +211,7 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
     let stats: TWebpack.Stats | TWebpack.MultiStats | undefined;
     try {
       stats = await LegacyAdapters.convertCallbackToPromise(
-        (compiler as ExtendedCompiler).run.bind(compiler)
+        (compiler as TWebpack.Compiler).run.bind(compiler)
       );
       await LegacyAdapters.convertCallbackToPromise(compiler.close.bind(compiler));
     } catch (e) {
@@ -217,13 +230,17 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
   private async _runWebpackWatchAsync(
     taskSession: IHeftTaskSession,
     heftConfiguration: HeftConfiguration,
-    options: IWebpackPluginOptions
+    options: IWebpackPluginOptions,
+    requestRun: () => void
   ): Promise<void> {
     // Save a handle to the original promise, since the this-scoped promise will be replaced whenever
     // the compilation completes.
     let webpackCompilationDonePromise: Promise<void> | undefined = this._webpackCompilationDonePromise;
 
-    if (!this._webpackWatchers) {
+    let isInitial: boolean = false;
+
+    if (!this._webpackCompiler) {
+      isInitial = true;
       this._validateEnvironmentVariable(taskSession);
       if (!taskSession.parameters.watch) {
         // Should never happen, but just in case
@@ -232,13 +249,13 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
 
       // Load the config and compiler, and return if there is no config found
       const webpackConfiguration: IWebpackConfiguration | undefined =
-        await this._getWebpackConfigurationAsync(taskSession, heftConfiguration, options);
+        await this._getWebpackConfigurationAsync(taskSession, heftConfiguration, options, requestRun);
       if (!webpackConfiguration) {
         return;
       }
 
       // Get the compiler which will be used for both serve and watch mode
-      const compiler: ExtendedCompiler | ExtendedMultiCompiler = await this._getWebpackCompilerAsync(
+      const compiler: TWebpack.Compiler | TWebpack.MultiCompiler = await this._getWebpackCompilerAsync(
         taskSession,
         webpackConfiguration
       );
@@ -371,23 +388,24 @@ export default class Webpack5Plugin implements IHeftTaskPlugin<IWebpackPluginOpt
           }
         });
       }
+    }
 
-      // Store the watchers to be used for suspend/resume
-      this._webpackWatchers = (
-        (compiler as ExtendedMultiCompiler).compilers ?? [compiler as ExtendedCompiler]
-      ).map((compiler: ExtendedCompiler) => compiler.watching);
+    let hasChanges: boolean = true;
+    if (!isInitial && this._watchFileSystems) {
+      hasChanges = false;
+      for (const watchFileSystem of this._watchFileSystems) {
+        hasChanges = watchFileSystem.flush() || hasChanges;
+      }
     }
 
     // Resume the compilation, wait for the compilation to complete, then suspend the watchers until the
     // next iteration. Even if there are no changes, the promise should resolve since resuming from a
     // suspended state invalidates the state of the watcher.
-    taskSession.logger.terminal.writeLine('Running incremental Webpack compilation');
-    for (const watcher of this._webpackWatchers) {
-      watcher.resume();
-    }
-    await webpackCompilationDonePromise;
-    for (const watcher of this._webpackWatchers) {
-      watcher.suspend();
+    if (hasChanges) {
+      taskSession.logger.terminal.writeLine('Running incremental Webpack compilation');
+      await webpackCompilationDonePromise;
+    } else {
+      taskSession.logger.terminal.writeLine('No Webpack-relevant changes detected. Skipping.');
     }
   }
 

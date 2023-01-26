@@ -85,12 +85,6 @@ export interface ICancellationTokenSourceOptions {
 }
 
 // @public
-export interface IChangedFileState {
-    readonly isSourceFile: boolean;
-    readonly version: string | undefined;
-}
-
-// @public
 export interface ICopyOperation extends IFileSelectionSpecifier {
     destinationFolders: string[];
     flatten?: boolean;
@@ -209,15 +203,14 @@ export interface IHeftTaskPlugin<TOptions = void> extends IHeftPlugin<IHeftTaskS
 export interface IHeftTaskRunHookOptions {
     readonly addCopyOperations: (copyOperations: ICopyOperation[]) => void;
     readonly addDeleteOperations: (deleteOperations: IDeleteOperation[]) => void;
+    // @beta
+    readonly cancellationToken: CancellationToken;
 }
 
 // @public
 export interface IHeftTaskRunIncrementalHookOptions extends IHeftTaskRunHookOptions {
     readonly addCopyOperations: (copyOperations: IIncrementalCopyOperation[]) => void;
-    // @beta
-    readonly cancellationToken: CancellationToken;
-    readonly changedFiles: ReadonlyMap<string, IChangedFileState>;
-    readonly globChangedFilesAsync: GlobFn;
+    readonly requestRun: () => void;
 }
 
 // @public
@@ -284,6 +277,7 @@ export interface IRunScriptOptions {
 export interface IScopedLogger {
     emitError(error: Error): void;
     emitWarning(warning: Error): void;
+    readonly hasErrors: boolean;
     readonly loggerName: string;
     readonly terminal: ITerminal;
 }

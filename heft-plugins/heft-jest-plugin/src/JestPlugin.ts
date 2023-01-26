@@ -167,7 +167,7 @@ export default class JestPlugin implements IHeftTaskPlugin<IJestPluginOptions> {
           // also be provided via CLI
           throw new Error('The --find-related-tests parameter cannot be used in watch mode.');
         } else {
-          combinedOptions.findRelatedTests = Array.from(runIncrementalOptions.changedFiles.keys());
+          // combinedOptions.findRelatedTests = Array.from(runIncrementalOptions.changedFiles.keys());
         }
         await this._runJestAsync(taskSession, heftConfiguration, combinedOptions);
       }

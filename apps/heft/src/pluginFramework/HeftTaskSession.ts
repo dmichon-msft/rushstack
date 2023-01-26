@@ -13,7 +13,6 @@ import type { IDeleteOperation } from '../plugins/DeleteFilesPlugin';
 import type { ICopyOperation, IIncrementalCopyOperation } from '../plugins/CopyFilesPlugin';
 import type { HeftPluginHost } from './HeftPluginHost';
 import type { CancellationToken } from './CancellationToken';
-import type { GlobFn } from '../plugins/FileGlobSpecifier';
 
 /**
  * The task session is responsible for providing session-specific information to Heft task plugins.
@@ -130,38 +129,15 @@ export interface IHeftTaskRunHookOptions {
    * @public
    */
   readonly addDeleteOperations: (deleteOperations: IDeleteOperation[]) => void;
-}
-
-/**
- * The state of a changed file.
- *
- * @public
- */
-export interface IChangedFileState {
-  /**
-   * Whether or not the file is a source file. A source file is determined to be any file
-   * that is not ignored by Git.
-   *
-   * @public
-   */
-  readonly isSourceFile: boolean;
 
   /**
-   * A version hash of a specific file properties that can be used to determine if a
-   * file has changed. The version hash will change when any of the following properties
-   * are changed:
-   * - path
-   * - file size
-   * - content last modified date (mtime)
-   * - metadata last modified date (ctime)
+   * A cancellation token that is used to signal that the build is cancelled. This
+   * can be used to stop operations early and allow for a new build to
+   * be started.
    *
-   * @remarks The initial state of the version hash is "0", which should only ever be
-   * returned on the first incremental run of the task. When a file is deleted, the
-   * version hash will be undefined.
-   *
-   * @public
+   * @beta
    */
-  readonly version: string | undefined;
+  readonly cancellationToken: CancellationToken;
 }
 
 /**
@@ -179,28 +155,10 @@ export interface IHeftTaskRunIncrementalHookOptions extends IHeftTaskRunHookOpti
   readonly addCopyOperations: (copyOperations: IIncrementalCopyOperation[]) => void;
 
   /**
-   * A map of changed files to the corresponding change state. This can be used to track which
-   * files have been changed during an incremental build. This map is populated with all changed
-   * files, including files that are not source files. When an incremental build completes
-   * successfully, the map is cleared and only files changed after the incremental build will be
-   * included in the map.
+   * A callback that can be invoked to tell the Heft runtime to schedule an incremental run of this
+   * task. If a run is already pending, does nothing.
    */
-  readonly changedFiles: ReadonlyMap<string, IChangedFileState>;
-
-  /**
-   * Glob the map of changed files and return the subset of changed files that match the provided
-   * globs.
-   */
-  readonly globChangedFilesAsync: GlobFn;
-
-  /**
-   * A cancellation token that is used to signal that the incremental build is cancelled. This
-   * can be used to stop incremental operations early and allow for a new incremental build to
-   * be started.
-   *
-   * @beta
-   */
-  readonly cancellationToken: CancellationToken;
+  readonly requestRun: () => void;
 }
 
 export interface IHeftTaskSessionOptions extends IHeftPhaseSessionOptions {
