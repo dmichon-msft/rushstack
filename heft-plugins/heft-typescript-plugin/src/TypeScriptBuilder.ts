@@ -1047,13 +1047,17 @@ export class TypeScriptBuilder {
   ): TWatchCompilerHost {
     const { ts } = tool;
 
+    const reportWatchStatus: TTypescript.DiagnosticReporter = (diagnostic: TTypescript.Diagnostic): void => {
+      this._printDiagnosticMessage(ts, diagnostic);
+    };
+
     const compilerHost: TWatchCompilerHost = ts.createWatchCompilerHost(
       tsconfig.fileNames,
       tsconfig.options,
       ts.sys,
       this._getCreateBuilderProgram(tool),
       tool.reportDiagnostic,
-      tool.reportDiagnostic,
+      reportWatchStatus,
       tsconfig.projectReferences
     );
 
