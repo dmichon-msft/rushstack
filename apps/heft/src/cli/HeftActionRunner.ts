@@ -401,8 +401,17 @@ export class HeftActionRunner {
     }
 
     const operations: Map<string, Operation> = new Map();
-    const startLifecycleOperation: Operation = this._getOrCreateLifecycleOperation('start', operations);
-    const finishLifecycleOperation: Operation = this._getOrCreateLifecycleOperation('finish', operations);
+    const internalHeftSession: InternalHeftSession = this._internalHeftSession;
+    const startLifecycleOperation: Operation = _getOrCreateLifecycleOperation(
+      internalHeftSession,
+      'start',
+      operations
+    );
+    const finishLifecycleOperation: Operation = _getOrCreateLifecycleOperation(
+      internalHeftSession,
+      'finish',
+      operations
+    );
 
     let hasWarnedAboutSkippedPhases: boolean = false;
     for (const phase of selectedPhases) {
@@ -424,7 +433,7 @@ export class HeftActionRunner {
       }
 
       // Create operation for the phase start node
-      const phaseOperation: Operation = this._getOrCreatePhaseOperation(phase, operations);
+      const phaseOperation: Operation = _getOrCreatePhaseOperation(internalHeftSession, phase, operations);
       // Set the 'start' lifecycle operation as a dependency of all phases to ensure the 'start' lifecycle
       // operation runs first
       phaseOperation.addDependency(startLifecycleOperation);
@@ -434,7 +443,7 @@ export class HeftActionRunner {
 
       // Create operations for each task
       for (const task of phase.tasks) {
-        const taskOperation: Operation = this._getOrCreateTaskOperation(task, operations);
+        const taskOperation: Operation = _getOrCreateTaskOperation(internalHeftSession, task, operations);
         // Set the phase operation as a dependency of the task operation to ensure the phase operation runs first
         taskOperation.addDependency(phaseOperation);
         // Set the 'start' lifecycle operation as a dependency of all tasks to ensure the 'start' lifecycle
@@ -446,7 +455,9 @@ export class HeftActionRunner {
 
         // Set all dependency tasks as dependencies of the task operation
         for (const dependencyTask of task.dependencyTasks) {
-          taskOperation.addDependency(this._getOrCreateTaskOperation(dependencyTask, operations));
+          taskOperation.addDependency(
+            _getOrCreateTaskOperation(internalHeftSession, dependencyTask, operations)
+          );
         }
 
         // Set all tasks in a in a phase as dependencies of the consuming phase
@@ -454,7 +465,8 @@ export class HeftActionRunner {
           if (this._action.selectedPhases.has(consumingPhase)) {
             // Set all tasks in a dependency phase as dependencies of the consuming phase to ensure the dependency
             // tasks run first
-            const consumingPhaseOperation: Operation = this._getOrCreatePhaseOperation(
+            const consumingPhaseOperation: Operation = _getOrCreatePhaseOperation(
+              internalHeftSession,
               consumingPhase,
               operations
             );
@@ -466,53 +478,62 @@ export class HeftActionRunner {
 
     return new Set(operations.values());
   }
+}
 
-  private _getOrCreateLifecycleOperation(
-    type: LifecycleOperationRunnerType,
-    operations: Map<string, Operation>
-  ): Operation {
-    const key: string = `lifecycle.${type}`;
+function _getOrCreateLifecycleOperation(
+  internalHeftSession: InternalHeftSession,
+  type: LifecycleOperationRunnerType,
+  operations: Map<string, Operation>
+): Operation {
+  const key: string = `lifecycle.${type}`;
 
-    let operation: Operation | undefined = operations.get(key);
-    if (!operation) {
-      operation = new Operation({
-        groupName: 'lifecycle',
-        runner: new LifecycleOperationRunner({ type, internalHeftSession: this._internalHeftSession })
-      });
-      operations.set(key, operation);
-    }
-    return operation;
+  let operation: Operation | undefined = operations.get(key);
+  if (!operation) {
+    operation = new Operation({
+      groupName: 'lifecycle',
+      runner: new LifecycleOperationRunner({ type, internalHeftSession })
+    });
+    operations.set(key, operation);
   }
+  return operation;
+}
 
-  private _getOrCreatePhaseOperation(phase: HeftPhase, operations: Map<string, Operation>): Operation {
-    const key: string = phase.phaseName;
+function _getOrCreatePhaseOperation(
+  internalHeftSession: InternalHeftSession,
+  phase: HeftPhase,
+  operations: Map<string, Operation>
+): Operation {
+  const key: string = phase.phaseName;
 
-    let operation: Operation | undefined = operations.get(key);
-    if (!operation) {
-      // Only create the operation. Dependencies are hooked up separately
-      operation = new Operation({
-        groupName: phase.phaseName,
-        runner: new PhaseOperationRunner({ phase, internalHeftSession: this._internalHeftSession })
-      });
-      operations.set(key, operation);
-    }
-    return operation;
+  let operation: Operation | undefined = operations.get(key);
+  if (!operation) {
+    // Only create the operation. Dependencies are hooked up separately
+    operation = new Operation({
+      groupName: phase.phaseName,
+      runner: new PhaseOperationRunner({ phase, internalHeftSession })
+    });
+    operations.set(key, operation);
   }
+  return operation;
+}
 
-  private _getOrCreateTaskOperation(task: HeftTask, operations: Map<string, Operation>): Operation {
-    const key: string = `${task.parentPhase.phaseName}.${task.taskName}`;
+function _getOrCreateTaskOperation(
+  internalHeftSession: InternalHeftSession,
+  task: HeftTask,
+  operations: Map<string, Operation>
+): Operation {
+  const key: string = `${task.parentPhase.phaseName}.${task.taskName}`;
 
-    let operation: Operation | undefined = operations.get(key);
-    if (!operation) {
-      operation = new Operation({
-        groupName: task.parentPhase.phaseName,
-        runner: new TaskOperationRunner({
-          internalHeftSession: this._internalHeftSession,
-          task
-        })
-      });
-      operations.set(key, operation);
-    }
-    return operation;
+  let operation: Operation | undefined = operations.get(key);
+  if (!operation) {
+    operation = new Operation({
+      groupName: task.parentPhase.phaseName,
+      runner: new TaskOperationRunner({
+        internalHeftSession,
+        task
+      })
+    });
+    operations.set(key, operation);
   }
+  return operation;
 }

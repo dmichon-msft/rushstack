@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import glob from 'fast-glob';
+import glob, { FileSystemAdapter } from 'fast-glob';
 
 /**
  * Used to specify a selection of one or more files.
@@ -78,16 +78,21 @@ export type GlobFn = (pattern: string | string[], options?: IGlobOptions | undef
 
 export async function getFilePathsAsync(
   fileGlobSpecifier: IFileSelectionSpecifier,
-  globFn: GlobFn
+  fs?: FileSystemAdapter
 ): Promise<Set<string>> {
   return new Set<string>(
-    await globFn(getIncludedGlobPatterns(fileGlobSpecifier), {
+    await glob(fileGlobSpecifier.includeGlobs!, {
+      fs,
       cwd: fileGlobSpecifier.sourcePath,
       ignore: fileGlobSpecifier.excludeGlobs,
       dot: true,
       absolute: true
     })
   );
+}
+
+export function normalizeFileSelectionSpecifier(fileGlobSpecifier: IFileSelectionSpecifier): void {
+  fileGlobSpecifier.includeGlobs = getIncludedGlobPatterns(fileGlobSpecifier);
 }
 
 function getIncludedGlobPatterns(fileGlobSpecifier: IFileSelectionSpecifier): string[] {

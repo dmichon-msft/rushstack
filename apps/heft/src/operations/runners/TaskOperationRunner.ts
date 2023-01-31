@@ -2,24 +2,26 @@
 // See LICENSE in the project root for license information.
 
 import { performance } from 'perf_hooks';
+
+import Watchpack from 'watchpack';
+
 import { AlreadyReportedError } from '@rushstack/node-core-library';
 
 import { OperationStatus } from '../OperationStatus';
 import { HeftTask } from '../../pluginFramework/HeftTask';
-import {
-  copyFilesAsync,
-  type ICopyOperation,
-  type IIncrementalCopyOperation
-} from '../../plugins/CopyFilesPlugin';
-import { deleteFilesAsync, type IDeleteOperation } from '../../plugins/DeleteFilesPlugin';
+import { copyFilesAsync } from '../../plugins/CopyFilesPlugin';
+import { deleteFilesAsync } from '../../plugins/DeleteFilesPlugin';
 import type { IOperationRunner, IOperationRunnerContext } from '../IOperationRunner';
 import type {
   HeftTaskSession,
+  IHeftTaskFileOperations,
   IHeftTaskRunHookOptions,
   IHeftTaskRunIncrementalHookOptions
 } from '../../pluginFramework/HeftTaskSession';
 import type { HeftPhaseSession } from '../../pluginFramework/HeftPhaseSession';
 import type { InternalHeftSession } from '../../pluginFramework/InternalHeftSession';
+import { normalizeFileSelectionSpecifier } from '../../plugins/FileGlobSpecifier';
+import { ITrackedFileSystemData } from '../../utilities/TrackingFileSystemAdapter';
 
 export interface ITaskOperationRunnerOptions {
   internalHeftSession: InternalHeftSession;
@@ -47,6 +49,10 @@ export async function runAndMeasureAsync<T = void>(
 
 export class TaskOperationRunner implements IOperationRunner {
   private readonly _options: ITaskOperationRunnerOptions;
+
+  private _fileOperations: IHeftTaskFileOperations | undefined = undefined;
+  private _lastTrackedData: ITrackedFileSystemData | undefined = undefined;
+  private _watcher: Watchpack | undefined = undefined;
 
   public readonly silent: boolean = false;
 
@@ -81,113 +87,115 @@ export class TaskOperationRunner implements IOperationRunner {
       return OperationStatus.Cancelled;
     }
 
+    if (!this._fileOperations && hooks.registerFileOperations.isUsed()) {
+      const fileOperations: IHeftTaskFileOperations = await hooks.registerFileOperations.promise({
+        copyOperations: new Set(),
+        deleteOperations: new Set()
+      });
+
+      for (const copyOperation of fileOperations.copyOperations) {
+        normalizeFileSelectionSpecifier(copyOperation);
+      }
+
+      this._fileOperations = fileOperations;
+    }
+
     const shouldRunIncremental: boolean = taskSession.parameters.watch && hooks.runIncremental.isUsed();
 
     const shouldRun: boolean = hooks.run.isUsed() || shouldRunIncremental;
-    if (!shouldRun) {
+    if (!shouldRun && !this._fileOperations) {
       terminal.writeVerboseLine('Task execution skipped, no implementation provided');
       return OperationStatus.NoOp;
     }
 
-    const result: OperationStatus = await runAndMeasureAsync(
-      async (): Promise<OperationStatus> => {
-        // Create the options and provide a utility method to obtain paths to copy
-        const copyOperations: ICopyOperation[] = [];
-        const incrementalCopyOperations: IIncrementalCopyOperation[] = [];
-        const deleteOperations: IDeleteOperation[] = [];
-
-        const runHookOptions: IHeftTaskRunHookOptions = {
-          addCopyOperations: (copyOperationsToAdd: ICopyOperation[]) => {
-            for (const copyOperation of copyOperationsToAdd) {
-              copyOperations.push(copyOperation);
-            }
-          },
-          addDeleteOperations: (deleteOperationsToAdd: IDeleteOperation[]) => {
-            for (const deleteOperation of deleteOperationsToAdd) {
-              deleteOperations.push(deleteOperation);
-            }
-          },
-          cancellationToken
-        };
-
-        // Run the plugin run hook
-        try {
-          if (shouldRunIncremental) {
-            const runIncrementalHookOptions: IHeftTaskRunIncrementalHookOptions = {
-              ...runHookOptions,
-              addCopyOperations: (incrementalCopyOperationsToAdd: IIncrementalCopyOperation[]) => {
-                for (const incrementalCopyOperation of incrementalCopyOperationsToAdd) {
-                  if (incrementalCopyOperation.onlyIfChanged) {
-                    incrementalCopyOperations.push(incrementalCopyOperation);
-                  } else {
-                    copyOperations.push(incrementalCopyOperation);
-                  }
-                }
-              },
-              requestRun: requestRun!
+    const runResult: OperationStatus = shouldRun
+      ? await runAndMeasureAsync(
+          async (): Promise<OperationStatus> => {
+            // Create the options and provide a utility method to obtain paths to copy
+            const runHookOptions: IHeftTaskRunHookOptions = {
+              cancellationToken
             };
-            await hooks.runIncremental.promise(runIncrementalHookOptions);
-          } else {
-            await hooks.run.promise(runHookOptions);
-          }
-        } catch (e) {
-          // Log out using the task logger, and return an error status
-          if (!(e instanceof AlreadyReportedError)) {
-            logger.emitError(e as Error);
-          }
-          return OperationStatus.Failure;
-        }
 
-        const fileOperationPromises: Promise<void>[] = [];
+            // Run the plugin run hook
+            try {
+              if (shouldRunIncremental) {
+                const runIncrementalHookOptions: IHeftTaskRunIncrementalHookOptions = {
+                  ...runHookOptions,
+                  requestRun: requestRun!
+                };
+                await hooks.runIncremental.promise(runIncrementalHookOptions);
+              } else {
+                await hooks.run.promise(runHookOptions);
+              }
+            } catch (e) {
+              // Log out using the task logger, and return an error status
+              if (!(e instanceof AlreadyReportedError)) {
+                logger.emitError(e as Error);
+              }
+              return OperationStatus.Failure;
+            }
 
-        // Copy the files if any were specified. Avoid checking the cancellation token here
-        // since plugins may be tracking state changes and would have already considered
-        // added copy operations as "processed" during hook execution.
-        if (copyOperations.length) {
-          fileOperationPromises.push(copyFilesAsync(copyOperations, taskSession.logger));
-        }
+            if (cancellationToken.isCancelled) {
+              return OperationStatus.Cancelled;
+            }
 
-        // Also incrementally copy files if any were specified. We know that globChangedFilesAsyncFn must
-        // exist because incremental copy operations are only available in incremental mode.
-        if (incrementalCopyOperations.length) {
-          /**
-          fileOperationPromises.push(
-            copyIncrementalFilesAsync(
-              incrementalCopyOperations,
-              globExistingChangedFilesFn,
-              isFirstRun,
-              taskSession.logger
-            )
-          );
-          */
-        }
+            return OperationStatus.Success;
+          },
+          () => `Starting ${shouldRunIncremental ? 'incremental ' : ''}task execution`,
+          () => {
+            const finishedWord: string = cancellationToken.isCancelled ? 'Cancelled' : 'Finished';
+            return `${finishedWord} ${shouldRunIncremental ? 'incremental ' : ''}task execution`;
+          },
+          terminal.writeVerboseLine.bind(terminal)
+        )
+      : OperationStatus.Success;
 
-        // Delete the files if any were specified. Avoid checking the cancellation token here
-        // for the same reasons as above.
-        if (deleteOperations.length) {
-          fileOperationPromises.push(deleteFilesAsync(deleteOperations, terminal));
-        }
+    if (this._fileOperations) {
+      const { copyOperations, deleteOperations } = this._fileOperations;
 
-        if (fileOperationPromises.length) {
-          await Promise.all(fileOperationPromises);
-        }
+      const oldWatcher: Watchpack | undefined = this._watcher;
+      oldWatcher?.pause();
+      const now: number = Date.now();
 
-        if (logger.hasErrors) {
-          return OperationStatus.Failure;
-        }
+      const watcherTimes: Map<string, { timestamp: number; safeTime: number }> = new Map();
+      oldWatcher?.collectTimeInfoEntries(watcherTimes, watcherTimes);
 
-        return OperationStatus.Success;
-      },
-      () => `Starting ${shouldRunIncremental ? 'incremental ' : ''}task execution`,
-      () => {
-        const finishedWord: string = cancellationToken.isCancelled ? 'Cancelled' : 'Finished';
-        return `${finishedWord} ${shouldRunIncremental ? 'incremental ' : ''}task execution`;
-      },
-      terminal.writeVerboseLine.bind(terminal)
-    );
+      const [copyTrackedFiles] = await Promise.all([
+        copyOperations.size > 0
+          ? copyFilesAsync(copyOperations, logger.terminal, this._lastTrackedData, watcherTimes)
+          : Promise.resolve(undefined),
+        deleteOperations.size > 0 ? deleteFilesAsync(deleteOperations, logger.terminal) : Promise.resolve()
+      ]);
+
+      this._lastTrackedData = copyTrackedFiles;
+
+      if (requestRun && copyTrackedFiles) {
+        const watcher: Watchpack = new Watchpack({
+          aggregateTimeout: 0,
+          followSymlinks: false
+        });
+
+        this._watcher = watcher;
+        watcher.watch({
+          files: copyTrackedFiles.files.keys(),
+          directories: copyTrackedFiles.contexts.keys(),
+          missing: copyTrackedFiles.missing.keys(),
+          startTime: now
+        });
+        watcher.once('aggregated', requestRun);
+      }
+    }
 
     // Even if the entire process has completed, we should mark the operation as cancelled if
     // cancellation has been requested.
-    return cancellationToken.isCancelled ? OperationStatus.Cancelled : result;
+    if (cancellationToken.isCancelled) {
+      return OperationStatus.Cancelled;
+    }
+
+    if (logger.hasErrors) {
+      return OperationStatus.Failure;
+    }
+
+    return runResult;
   }
 }
