@@ -18,8 +18,6 @@
   // "Adding '<rootDir>/lib' here enables lib/__mocks__ to be used for mocking Node.js system modules
   "roots": ["<rootDir>/lib"],
 
-  "testURL": "http://localhost/",
-
   "testMatch": ["<rootDir>/lib/**/*.test.js"],
   "testPathIgnorePatterns": ["/node_modules/"],
 
@@ -38,6 +36,16 @@
     "!lib/**/__mocks__/**"
   ],
   "coveragePathIgnorePatterns": ["/node_modules/"],
+
+  "testEnvironmentOptions": {
+    "url": "http://localhost/"
+  },
+
+  // Retain pre-Jest 29 snapshot behavior
+  "snapshotFormat": {
+    "escapeString": true,
+    "printBasicPrototype": true
+  },
 
   "snapshotResolver": "../lib/exports/jest-source-map-snapshot-resolver.js",
 
