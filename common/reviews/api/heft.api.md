@@ -5,6 +5,7 @@
 ```ts
 
 import { AsyncParallelHook } from 'tapable';
+import { AsyncSeriesWaterfallHook } from 'tapable';
 import { CommandLineChoiceListParameter } from '@rushstack/ts-command-line';
 import { CommandLineChoiceParameter } from '@rushstack/ts-command-line';
 import { CommandLineFlagParameter } from '@rushstack/ts-command-line';
@@ -51,9 +52,6 @@ export { CommandLineParameter }
 export { CommandLineStringListParameter }
 
 export { CommandLineStringParameter }
-
-// @public
-export type GlobFn = (pattern: string | string[], options?: IGlobOptions | undefined) => Promise<string[]>;
 
 // @public (undocumented)
 export class HeftConfiguration {
@@ -190,7 +188,14 @@ export interface IHeftRecordMetricsHookOptions {
 }
 
 // @public
+export interface IHeftTaskFileOperations {
+    copyOperations: Set<ICopyOperation>;
+    deleteOperations: Set<IDeleteOperation>;
+}
+
+// @public
 export interface IHeftTaskHooks {
+    readonly registerFileOperations: AsyncSeriesWaterfallHook<IHeftTaskFileOperations>;
     readonly run: AsyncParallelHook<IHeftTaskRunHookOptions>;
     readonly runIncremental: AsyncParallelHook<IHeftTaskRunIncrementalHookOptions>;
 }
@@ -201,15 +206,12 @@ export interface IHeftTaskPlugin<TOptions = void> extends IHeftPlugin<IHeftTaskS
 
 // @public
 export interface IHeftTaskRunHookOptions {
-    readonly addCopyOperations: (copyOperations: ICopyOperation[]) => void;
-    readonly addDeleteOperations: (deleteOperations: IDeleteOperation[]) => void;
     // @beta
     readonly cancellationToken: CancellationToken;
 }
 
 // @public
 export interface IHeftTaskRunIncrementalHookOptions extends IHeftTaskRunHookOptions {
-    readonly addCopyOperations: (copyOperations: IIncrementalCopyOperation[]) => void;
     readonly requestRun: () => void;
 }
 

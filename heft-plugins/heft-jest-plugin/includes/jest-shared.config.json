@@ -53,8 +53,8 @@
   },
 
   // The modulePathIgnorePatterns below accepts these sorts of paths:
-  //   - <rootDir>/src
-  //   - <rootDir>/src/file.ts
+  //   - <rootDir>/lib
+  //   - <rootDir>/lib/file.ts
   // ...and ignores anything else under <rootDir>
   "modulePathIgnorePatterns": [],
 

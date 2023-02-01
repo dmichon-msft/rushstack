@@ -31,6 +31,7 @@ import { FileSystem, Import, JsonFile, PackageName, type ITerminal } from '@rush
 
 import type { IHeftJestReporterOptions } from './HeftJestReporter';
 import { jestResolve } from './JestUtils';
+import { TerminalWritableStream } from './TerminalWritableStream';
 
 type JestReporterConfig = string | Config.ReporterConfig;
 
@@ -62,6 +63,7 @@ export interface IJestPluginOptions {
   extensionForTests?: '.js' | '.cjs' | '.mjs';
   findRelatedTests?: string[];
   folderNameForTests?: string;
+  folderNameForSnapshots?: string;
   maxWorkers?: string;
   passWithNoTests?: boolean;
   silent?: boolean;
@@ -190,6 +192,190 @@ export default class JestPlugin implements IHeftTaskPlugin<IJestPluginOptions> {
     terminal.writeLine(`Using Jest version ${getVersion()}`);
 
     const buildFolderPath: string = heftConfiguration.buildFolderPath;
+    const jestArgv: Config.Argv | undefined = await this._createJestArgvAsync(
+      taskSession,
+      heftConfiguration,
+      options,
+      false
+    );
+    if (!jestArgv) {
+      return;
+    }
+
+    const {
+      // Config.Argv is weakly typed.  After updating the jestArgv object, it's a good idea to inspect "globalConfig"
+      // in the debugger to validate that your changes are being applied as expected.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      globalConfig,
+      results: jestResults
+    } = await runCLI(jestArgv, [buildFolderPath]);
+
+    if (jestResults.numFailedTests > 0) {
+      logger.emitError(
+        new Error(
+          `${jestResults.numFailedTests} Jest test${jestResults.numFailedTests > 1 ? 's' : ''} failed`
+        )
+      );
+    } else if (jestResults.numFailedTestSuites > 0) {
+      logger.emitError(
+        new Error(
+          `${jestResults.numFailedTestSuites} Jest test suite${
+            jestResults.numFailedTestSuites > 1 ? 's' : ''
+          } failed`
+        )
+      );
+    }
+  }
+
+  /**
+   * Runs Jest using the provided options.
+   */
+  private async _runJestWatchAsync(
+    taskSession: IHeftTaskSession,
+    heftConfiguration: HeftConfiguration,
+    options: IJestPluginOptions,
+    requestRun: () => void
+  ): Promise<void> {
+    const logger: IScopedLogger = taskSession.logger;
+    const terminal: ITerminal = logger.terminal;
+
+    const pendingTestRuns: Set<IPendingTestRun> = this._pendingTestRuns;
+
+    if (!this._jestPromise) {
+      // Monkey-patch Jest's watch mode so that we can orchestrate it.
+      const jestCoreDir: string = path.dirname(require.resolve('@jest/core'));
+
+      const wrappedStdOut: TerminalWritableStream = new TerminalWritableStream(terminal);
+
+      // Shim watch so that we can intercept the output stream
+      const watchModulePath: string = path.resolve(jestCoreDir, 'watch.js');
+      const watchModule: typeof import('@jest/core/build/watch') = require(watchModulePath);
+      const { default: originalWatch } = watchModule;
+      type WatchParams = Parameters<typeof originalWatch>;
+      const watch: typeof originalWatch = (
+        initialGlobalConfig: WatchParams[0],
+        contexts: WatchParams[1],
+        outputStream: NodeJS.WriteStream,
+        hasteMapInstances: WatchParams[3],
+        stdin: NodeJS.ReadStream | undefined,
+        hooks: WatchParams[5],
+        filter: WatchParams[6]
+      ) => {
+        return originalWatch(
+          initialGlobalConfig,
+          contexts,
+          wrappedStdOut as unknown as NodeJS.WriteStream,
+          hasteMapInstances,
+          stdin,
+          hooks,
+          filter
+        );
+      };
+      Object.defineProperty(watchModule, 'default', {
+        get(): typeof originalWatch {
+          return watch;
+        }
+      });
+
+      // Shim runJest so that we can defer test execution
+      const runJestModulePath: string = path.resolve(jestCoreDir, 'runJest.js');
+      const runJestModule: typeof import('@jest/core/build/runJest') = require(runJestModulePath);
+      const { default: originalRunJest } = runJestModule;
+      const runJest: typeof originalRunJest = (
+        params: Parameters<typeof originalRunJest>[0]
+      ): Promise<void> => {
+        if (!this._executing) {
+          setTimeout(requestRun, 100);
+        }
+
+        return new Promise((resolve: () => void, reject: (err: Error) => void) => {
+          pendingTestRuns.add(async (): Promise<AggregatedResult | undefined> => {
+            let result: AggregatedResult | undefined;
+            const { onComplete } = params;
+            try {
+              await originalRunJest({
+                ...params,
+                onComplete: (testResults: AggregatedResult) => {
+                  result = testResults;
+                  onComplete(testResults);
+                }
+              });
+              resolve();
+            } catch (err) {
+              reject(err);
+              throw err;
+            }
+
+            return result;
+          });
+        });
+      };
+
+      Object.defineProperty(runJestModule, 'default', {
+        get(): typeof originalRunJest {
+          return runJest;
+        }
+      });
+
+      const { getVersion, runCLI } = await import(`@jest/core`);
+      terminal.writeLine(`Using Jest version ${getVersion()}`);
+
+      const buildFolderPath: string = heftConfiguration.buildFolderPath;
+      const jestArgv: Config.Argv | undefined = await this._createJestArgvAsync(
+        taskSession,
+        heftConfiguration,
+        options,
+        true
+      );
+      if (!jestArgv) {
+        this._jestPromise = Promise.resolve();
+        return;
+      }
+
+      this._jestPromise = runCLI(jestArgv, [buildFolderPath]);
+    }
+
+    if (pendingTestRuns.size > 0) {
+      this._executing = true;
+      for (const pendingTestRun of pendingTestRuns) {
+        pendingTestRuns.delete(pendingTestRun);
+        const jestResults: AggregatedResult | undefined = await pendingTestRun();
+        if (jestResults) {
+          if (jestResults.numFailedTests > 0) {
+            logger.emitError(
+              new Error(
+                `${jestResults.numFailedTests} Jest test${jestResults.numFailedTests > 1 ? 's' : ''} failed`
+              )
+            );
+          } else if (jestResults.numFailedTestSuites > 0) {
+            logger.emitError(
+              new Error(
+                `${jestResults.numFailedTestSuites} Jest test suite${
+                  jestResults.numFailedTestSuites > 1 ? 's' : ''
+                } failed`
+              )
+            );
+          }
+        } else {
+          terminal.writeLine(`No tests were executed.`);
+        }
+      }
+      this._executing = false;
+    } else {
+      terminal.writeLine(`No pending test runs.`);
+    }
+  }
+
+  private async _createJestArgvAsync(
+    taskSession: IHeftTaskSession,
+    heftConfiguration: HeftConfiguration,
+    options: IJestPluginOptions,
+    watch: boolean
+  ): Promise<Config.Argv | undefined> {
+    const logger: IScopedLogger = taskSession.logger;
+    const { terminal } = logger;
+
+    const buildFolderPath: string = heftConfiguration.buildFolderPath;
     const projectRelativeFilePath: string = options?.configurationPath ?? JEST_CONFIGURATION_LOCATION;
     let jestConfig: IHeftJestConfiguration;
     if (options?.disableConfigurationModuleResolution) {
@@ -249,7 +435,9 @@ export default class JestPlugin implements IHeftTaskPlugin<IJestPluginOptions> {
       passWithNoTests: options.passWithNoTests,
 
       $0: process.argv0,
-      _: []
+      _: [],
+
+      watchAll: watch
     };
 
     if (!options.debugHeftReporter) {
@@ -279,250 +467,10 @@ export default class JestPlugin implements IHeftTaskPlugin<IJestPluginOptions> {
     // Stringify the config and pass it into Jest directly
     jestArgv.config = JSON.stringify(jestConfig);
 
-    const {
-      // Config.Argv is weakly typed.  After updating the jestArgv object, it's a good idea to inspect "globalConfig"
-      // in the debugger to validate that your changes are being applied as expected.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      globalConfig,
-      results: jestResults
-    } = await runCLI(jestArgv, [buildFolderPath]);
+    process.env.JEST_HEFT_TEST_DIR = path.resolve(buildFolderPath, options.folderNameForTests ?? 'lib');
+    process.env.JEST_HEFT_SRC_DIR = path.resolve(buildFolderPath, options.folderNameForSnapshots ?? 'src');
 
-    if (jestResults.numFailedTests > 0) {
-      logger.emitError(
-        new Error(
-          `${jestResults.numFailedTests} Jest test${jestResults.numFailedTests > 1 ? 's' : ''} failed`
-        )
-      );
-    } else if (jestResults.numFailedTestSuites > 0) {
-      logger.emitError(
-        new Error(
-          `${jestResults.numFailedTestSuites} Jest test suite${
-            jestResults.numFailedTestSuites > 1 ? 's' : ''
-          } failed`
-        )
-      );
-    }
-  }
-
-  /**
-   * Runs Jest using the provided options.
-   */
-  private async _runJestWatchAsync(
-    taskSession: IHeftTaskSession,
-    heftConfiguration: HeftConfiguration,
-    options: IJestPluginOptions,
-    requestRun: () => void
-  ): Promise<void> {
-    const logger: IScopedLogger = taskSession.logger;
-    const terminal: ITerminal = logger.terminal;
-
-    const pendingTestRuns: Set<IPendingTestRun> = this._pendingTestRuns;
-
-    if (!this._jestPromise) {
-      // Monkey-patch Jest's watch mode so that we can orchestrate it.
-      const jestCoreDir: string = path.dirname(require.resolve('@jest/core'));
-
-      // Tell Jest we are a dumb terminal
-      process.env.TERM = 'dumb';
-
-      // Shim watch so that we can intercept the output stream
-      const watchModulePath: string = path.resolve(jestCoreDir, 'watch.js');
-      const watchModule: typeof import('@jest/core/build/watch') = require(watchModulePath);
-      const { default: originalWatch } = watchModule;
-      type WatchParams = Parameters<typeof originalWatch>;
-      const watch: typeof originalWatch = (
-        initialGlobalConfig: WatchParams[0],
-        contexts: WatchParams[1],
-        outputStream: NodeJS.WriteStream,
-        hasteMapInstances: WatchParams[3],
-        stdin: NodeJS.ReadStream | undefined,
-        hooks: WatchParams[5],
-        filter: WatchParams[6]
-      ) => {
-        // TODO: Route `outputStream` via `terminal`
-        return originalWatch(
-          initialGlobalConfig,
-          contexts,
-          outputStream,
-          hasteMapInstances,
-          stdin,
-          hooks,
-          filter
-        );
-      };
-      Object.defineProperty(watchModule, 'default', {
-        get(): typeof originalWatch {
-          return watch;
-        }
-      });
-
-      // Shim runJest so that we can defer test execution
-      const runJestModulePath: string = path.resolve(jestCoreDir, 'runJest.js');
-      const runJestModule: typeof import('@jest/core/build/runJest') = require(runJestModulePath);
-      const { default: originalRunJest } = runJestModule;
-      const runJest: typeof originalRunJest = (
-        params: Parameters<typeof originalRunJest>[0]
-      ): Promise<void> => {
-        if (!this._executing) {
-          process.nextTick(requestRun);
-        }
-
-        return new Promise((resolve: () => void, reject: (err: Error) => void) => {
-          pendingTestRuns.add(async (): Promise<AggregatedResult | undefined> => {
-            let result: AggregatedResult | undefined;
-            const { onComplete } = params;
-            try {
-              await originalRunJest({
-                ...params,
-                onComplete: (testResults: AggregatedResult) => {
-                  result = testResults;
-                  onComplete(testResults);
-                }
-              });
-              resolve();
-            } catch (err) {
-              reject(err);
-              throw err;
-            }
-
-            return result;
-          });
-        });
-      };
-
-      Object.defineProperty(runJestModule, 'default', {
-        get(): typeof originalRunJest {
-          return runJest;
-        }
-      });
-
-      const { getVersion, runCLI } = await import(`@jest/core`);
-      terminal.writeLine(`Using Jest version ${getVersion()}`);
-
-      const buildFolderPath: string = heftConfiguration.buildFolderPath;
-      const projectRelativeFilePath: string = options?.configurationPath ?? JEST_CONFIGURATION_LOCATION;
-      let jestConfig: IHeftJestConfiguration;
-      if (options?.disableConfigurationModuleResolution) {
-        // Module resolution explicitly disabled, use the config as-is
-        const jestConfigPath: string = path.join(buildFolderPath, projectRelativeFilePath);
-        if (!(await FileSystem.existsAsync(jestConfigPath))) {
-          logger.emitError(new Error(`Expected to find jest config file at "${jestConfigPath}".`));
-          return;
-        }
-        jestConfig = await JsonFile.loadAsync(jestConfigPath);
-      } else {
-        // Load in and resolve the config file using the "extends" field
-        jestConfig = await JestPlugin._getJestConfigurationLoader(
-          buildFolderPath,
-          projectRelativeFilePath
-        ).loadConfigurationFileForProjectAsync(
-          terminal,
-          heftConfiguration.buildFolderPath,
-          heftConfiguration.rigConfig
-        );
-        if (jestConfig.preset) {
-          throw new Error(
-            'The provided jest.config.json specifies a "preset" property while using resolved modules. ' +
-              'You must either remove all "preset" values from your Jest configuration, use the "extends" ' +
-              'property, or set the "disableConfigurationModuleResolution" option to "true" on the Jest ' +
-              'plugin in heft.json'
-          );
-        }
-      }
-
-      // If no displayName is provided, use the package name. This field is used by Jest to
-      // differentiate in multi-project repositories, and since we have the context, we may
-      // as well provide it.
-      if (!jestConfig.displayName) {
-        jestConfig.displayName = heftConfiguration.projectPackageJson.name;
-      }
-
-      const jestArgv: Config.Argv = {
-        // In debug mode, avoid forking separate processes that are difficult to debug
-        runInBand: taskSession.parameters.debug,
-        debug: taskSession.parameters.debug,
-        detectOpenHandles: options.detectOpenHandles || false,
-
-        // Use the temp folder. Cache is unreliable, so we want it cleared on every --clean run
-        cacheDirectory: taskSession.tempFolderPath,
-        updateSnapshot: options.updateSnapshots,
-
-        listTests: false,
-        rootDir: buildFolderPath,
-
-        silent: options.silent || false,
-        testNamePattern: options.testNamePattern,
-        testPathPattern: options.testPathPattern ? [options.testPathPattern] : undefined,
-        testTimeout: options.testTimeout,
-        maxWorkers: options.maxWorkers,
-
-        passWithNoTests: options.passWithNoTests,
-
-        $0: process.argv0,
-        _: [],
-
-        watch: true
-      };
-
-      if (!options.debugHeftReporter) {
-        // Extract the reporters and transform to include the Heft reporter by default
-        jestArgv.reporters = JestPlugin._extractHeftJestReporters(
-          taskSession,
-          heftConfiguration,
-          jestConfig,
-          projectRelativeFilePath
-        );
-      } else {
-        logger.emitWarning(
-          new Error('The "--debug-heft-reporter" parameter was specified; disabling HeftJestReporter')
-        );
-      }
-
-      if (options.findRelatedTests?.length) {
-        // Pass test names as the command line remainder
-        jestArgv.findRelatedTests = true;
-        jestArgv._ = [...options.findRelatedTests];
-      }
-
-      if (options.disableCodeCoverage) {
-        jestConfig.collectCoverage = false;
-      }
-
-      // Stringify the config and pass it into Jest directly
-      jestArgv.config = JSON.stringify(jestConfig);
-
-      this._jestPromise = runCLI(jestArgv, [buildFolderPath]);
-    }
-
-    if (pendingTestRuns.size > 0) {
-      this._executing = true;
-      for (const pendingTestRun of pendingTestRuns) {
-        pendingTestRuns.delete(pendingTestRun);
-        const jestResults: AggregatedResult | undefined = await pendingTestRun();
-        if (jestResults) {
-          if (jestResults.numFailedTests > 0) {
-            logger.emitError(
-              new Error(
-                `${jestResults.numFailedTests} Jest test${jestResults.numFailedTests > 1 ? 's' : ''} failed`
-              )
-            );
-          } else if (jestResults.numFailedTestSuites > 0) {
-            logger.emitError(
-              new Error(
-                `${jestResults.numFailedTestSuites} Jest test suite${
-                  jestResults.numFailedTestSuites > 1 ? 's' : ''
-                } failed`
-              )
-            );
-          }
-        } else {
-          terminal.writeLine(`No tests were executed.`);
-        }
-      }
-      this._executing = false;
-    } else {
-      terminal.writeLine(`No pending test runs.`);
-    }
+    return jestArgv;
   }
 
   /**

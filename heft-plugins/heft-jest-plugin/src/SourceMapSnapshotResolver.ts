@@ -26,6 +26,9 @@ function findSourcePath(testPath: string, snapshotExtension: string): string {
 const testToSnapshotCache: Map<string, string> = new Map();
 const snapshotToTestCache: Map<string, string> = new Map();
 
+const srcDirFromEnv: string | undefined = process.env.JEST_HEFT_SRC_DIR;
+const testDirFromEnv: string | undefined = process.env.JEST_HEFT_TEST_DIR;
+
 const snapshotResolver = {
   resolveSnapshotPath(testPath: string, snapshotExtension: string): string {
     testPath = path.normalize(testPath);
@@ -42,7 +45,18 @@ const snapshotResolver = {
     snapshotFilePath = path.normalize(snapshotFilePath);
     const fromCache: string | undefined = snapshotToTestCache.get(snapshotFilePath);
     if (!fromCache) {
-      throw new Error(`Expected snapshot lookup to happen first for ${snapshotFilePath}`);
+      if (srcDirFromEnv && testDirFromEnv) {
+        const { dir, base } = path.parse(snapshotFilePath);
+        const parentDir: string = path.dirname(dir);
+        const sourceFilePath: string = path.join(parentDir, base.slice(0, -snapshotExtension.length));
+        const testFilePath: string = sourceFilePath
+          .replace(srcDirFromEnv, testDirFromEnv)
+          .replace(/\.tsx?$/, '.js');
+        snapshotToTestCache.set(snapshotFilePath, testFilePath);
+        return testFilePath;
+      } else {
+        throw new Error(`Expected snapshot lookup to happen first for ${snapshotFilePath}`);
+      }
     }
     return fromCache;
   },

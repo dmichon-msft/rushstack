@@ -30,6 +30,7 @@ export {
 export {
   IHeftTaskSession,
   IHeftTaskHooks,
+  IHeftTaskFileOperations,
   IHeftTaskRunHookOptions,
   IHeftTaskRunIncrementalHookOptions
 } from './pluginFramework/HeftTaskSession';
@@ -40,7 +41,7 @@ export { IDeleteOperation } from './plugins/DeleteFilesPlugin';
 
 export { IRunScript, IRunScriptOptions } from './plugins/RunScriptPlugin';
 
-export { IFileSelectionSpecifier, IGlobOptions, GlobFn } from './plugins/FileGlobSpecifier';
+export { IFileSelectionSpecifier, IGlobOptions } from './plugins/FileGlobSpecifier';
 
 export {
   IHeftRecordMetricsHookOptions,
