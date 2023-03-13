@@ -19,8 +19,10 @@ export function getRepoChanges(currentWorkingDirectory: string, revision?: strin
 // @beta
 export function getRepoRoot(currentWorkingDirectory: string, gitPath?: string): string;
 
+// Warning: (ae-forgotten-export) The symbol "IGetRepoStateAsyncParams" needs to be exported by the entry point index.d.ts
+//
 // @beta
-export function getRepoStateAsync(rootDirectory: string, additionalRelativePathsToHash?: string[], gitPath?: string): Promise<Map<string, string>>;
+export function getRepoStateAsync(params: IGetRepoStateAsyncParams): Promise<Map<string, string>>;
 
 // @beta
 export interface IFileDiffStatus {

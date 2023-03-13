@@ -79,6 +79,7 @@ Object {
   "testProject/file1.txt": "c7b2f707ac99ca522f965210a7b6b0b109863f34",
   "testProject/file蝴蝶.txt": "ae814af81e16cb2ae8c57503c77e2cab6b5462ba",
   "testProject/log.log": "2e65efe2a145dda7ee51d1741299f848e5bf752e",
+  "testProject/log2.log": "63d8dbd40c23542e740659a7168a0ce3138ea748",
   "testProject/package.json": "18a1e415e56220fa5122428a4ef8eb8874756576",
 }
 `;

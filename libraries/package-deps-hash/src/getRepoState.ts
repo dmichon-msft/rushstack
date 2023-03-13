@@ -13,6 +13,28 @@ export interface IGitVersion {
   patch: number;
 }
 
+/**
+ * @beta
+ */
+export interface IGetRepoStateAsyncParams {
+  /**
+   * The root directory of the Git repository. All relative paths are relative to this directory.
+   */
+  rootDirectory: string;
+  /**
+   * Zero or more paths that are not tracked by Git that should also be hashed.
+   */
+  additionalRelativePathsToHash?: Iterable<string>;
+  /**
+   * Promise for zero or more paths that may be tracked by Git that should also be hashed.
+   */
+  additionalAsyncRelativePathsToHash?: Promise<Iterable<string>>;
+  /**
+   * The path to the Git binary.
+   */
+  gitPath?: string;
+}
+
 const MINIMUM_GIT_VERSION: IGitVersion = {
   major: 2,
   minor: 20,
@@ -296,16 +318,12 @@ async function spawnGitAsync(
 /**
  * Gets the object hashes for all files in the Git repo, combining the current commit with working tree state.
  * Uses async operations and runs all primary Git calls in parallel.
- * @param rootDirectory - The root directory of the Git repository
- * @param additionalRelativePathsToHash - Root-relative file paths to have Git hash and include in the results
- * @param gitPath - The path to the Git executable
  * @beta
  */
-export async function getRepoStateAsync(
-  rootDirectory: string,
-  additionalRelativePathsToHash?: string[],
-  gitPath?: string
-): Promise<Map<string, string>> {
+export async function getRepoStateAsync(params: IGetRepoStateAsyncParams): Promise<Map<string, string>> {
+  const { rootDirectory, additionalRelativePathsToHash, additionalAsyncRelativePathsToHash, gitPath } =
+    params;
+
   const statePromise: Promise<IGitTreeState> = spawnGitAsync(
     gitPath,
     STANDARD_GIT_OPTIONS.concat([
@@ -350,7 +368,11 @@ export async function getRepoStateAsync(
       }
     }
 
-    const [{ files }, locallyModified] = await Promise.all([statePromise, locallyModifiedPromise]);
+    const [{ files }, locallyModified, asyncFiles] = await Promise.all([
+      statePromise,
+      locallyModifiedPromise,
+      additionalAsyncRelativePathsToHash
+    ]);
 
     for (const [filePath, exists] of locallyModified) {
       if (exists) {
@@ -358,6 +380,15 @@ export async function getRepoStateAsync(
         yield `${filePath}\n`;
       } else {
         files.delete(filePath);
+      }
+    }
+
+    if (asyncFiles) {
+      for (const filePath of asyncFiles) {
+        if (!files.has(filePath)) {
+          hashPaths.push(filePath);
+          yield `${filePath}\n`;
+        }
       }
     }
   }
@@ -391,11 +422,10 @@ export async function getRepoStateAsync(
     // Submodules are not the normal critical path. Accept serial performance rather than investing in complexity.
     // Can revisit if submodules become more commonly used.
     for (const submodulePath of submodules.keys()) {
-      const submoduleState: Map<string, string> = await getRepoStateAsync(
-        `${rootDirectory}/${submodulePath}`,
-        [],
+      const submoduleState: Map<string, string> = await getRepoStateAsync({
+        rootDirectory: `${rootDirectory}/${submodulePath}`,
         gitPath
-      );
+      });
       for (const [filePath, hash] of submoduleState) {
         files.set(`${submodulePath}/${filePath}`, hash);
       }
