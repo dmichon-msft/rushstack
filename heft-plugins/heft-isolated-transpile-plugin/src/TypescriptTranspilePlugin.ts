@@ -54,8 +54,6 @@ export async function transpileProjectAsync(
   );
   const { fileNames: fileNamesFromTsConfig, options: compilerOptions } = tsconfig;
 
-  compilerOptions.importHelpers = true;
-
   for (const [option, value] of Object.entries(ts.getDefaultCompilerOptions())) {
     if (compilerOptions[option] === undefined) {
       compilerOptions[option] = value;
@@ -73,6 +71,8 @@ export async function transpileProjectAsync(
   }
 
   compilerOptions.suppressOutputPathCheck = true;
+  compilerOptions.skipDefaultLibCheck = true;
+  compilerOptions.preserveValueImports = true;
 
   const sourceFilePaths: string[] = fileNamesFromTsConfig.filter(
     (fileName: string) => !fileName.endsWith('.d.ts')
@@ -88,6 +88,7 @@ export async function transpileProjectAsync(
 
   const moduleKindsToEmit: [string, IEmitKind][] = [
     [outDir.slice(buildFolder.length), { moduleKind: module!, scriptTarget: rawTarget! }],
+    [`/lib-esnext`, { moduleKind: ts.ModuleKind.ESNext, scriptTarget: rawTarget! }],
     [`/lib-commonjs`, { moduleKind: ts.ModuleKind.CommonJS, scriptTarget: rawTarget! }],
     [`/lib-amd`, { moduleKind: ts.ModuleKind.AMD, scriptTarget: rawTarget! }]
   ];
@@ -106,7 +107,7 @@ export async function transpileProjectAsync(
 
   console.log(`Cleaning Outputs`, process.uptime());
 
-  await Async.forEachAsync(moduleKindsToEmit, async ([outPrefix]) => {
+  await Async.forEachAsync(moduleKindsToEmit, async ([outPrefix]: [string, IEmitKind]): Promise<void> => {
     const dirToClean: string = `${buildFolder}${outPrefix}`;
     console.log(`Cleaning '${dirToClean}'`);
     await (fs as any).promises.rm(dirToClean, { force: true, recursive: true });
@@ -119,7 +120,9 @@ export async function transpileProjectAsync(
 
   const createDirsPromise: Promise<void> = Async.forEachAsync(
     outputs.iterateParentNodes(),
-    async (dirname: string) => fs.promises.mkdir(`${buildFolder}${dirname}`, { recursive: true }),
+    async (dirname: string): Promise<void> => {
+      await fs.promises.mkdir(`${buildFolder}${dirname}`, { recursive: true });
+    },
     {
       concurrency: 20
     }
@@ -131,6 +134,7 @@ export async function transpileProjectAsync(
       const sourceText: string = await FileSystem.readFileAsync(fileName);
       const start: number = performance.now();
       const sourceFile: ts.SourceFile = ts.createSourceFile(fileName, sourceText, rawTarget!);
+      sourceFile.hasNoDefaultLib = true;
       sourceFileByPath.set(fileName, sourceFile);
       const end: number = performance.now();
       parseTimes.push([fileName, end - start]);
@@ -154,7 +158,7 @@ export async function transpileProjectAsync(
       writeQueue.push([fileName, text]);
     },
     getDefaultLibFileName: () => 'lib.d.ts',
-    useCaseSensitiveFileNames: () => false,
+    useCaseSensitiveFileNames: () => true,
     getCanonicalFileName: (fileName: string) => fileName,
     getCurrentDirectory: () => '',
     getNewLine: () => newLine,
@@ -172,8 +176,8 @@ export async function transpileProjectAsync(
   console.log(`Writing Outputs`, process.uptime());
   await Async.forEachAsync(
     writeQueue,
-    async ([fileName, text]) => {
-      return fs.promises.writeFile(fileName, text, { encoding: 'utf8' });
+    async ([fileName, text]: [string, string]): Promise<void> => {
+      await fs.promises.writeFile(fileName, text, { encoding: 'utf8' });
     },
     {
       concurrency: 20

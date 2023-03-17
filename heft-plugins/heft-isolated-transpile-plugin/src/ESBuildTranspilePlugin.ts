@@ -25,7 +25,7 @@ const moduleMap: Record<ts.ModuleKind, BuildOptions['format']> = {
   [ts.ModuleKind.ES2020]: 'esm',
   [ts.ModuleKind.ES2022]: 'esm',
   [ts.ModuleKind.ESNext]: 'esm',
-  [ts.ModuleKind.Node12]: 'esm',
+  [ts.ModuleKind.Node16]: 'esm',
   [ts.ModuleKind.NodeNext]: 'esm',
 
   [ts.ModuleKind.AMD]: undefined,

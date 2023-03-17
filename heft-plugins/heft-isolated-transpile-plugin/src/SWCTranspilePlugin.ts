@@ -30,7 +30,7 @@ const moduleMap: Record<ts.ModuleKind, ModuleConfig['type'] | undefined> = {
   [ts.ModuleKind.ES2020]: 'es6',
   [ts.ModuleKind.ES2022]: 'es6',
   [ts.ModuleKind.ESNext]: 'es6',
-  [ts.ModuleKind.Node12]: 'nodenext',
+  [ts.ModuleKind.Node16]: 'nodenext',
   [ts.ModuleKind.NodeNext]: 'nodenext',
 
   [ts.ModuleKind.AMD]: 'amd',
@@ -229,7 +229,7 @@ export async function transpileProjectAsync(
 
   console.log(`Cleaning Outputs`, process.uptime());
 
-  await Async.forEachAsync(moduleKindsToEmit, async ([outPrefix]) => {
+  await Async.forEachAsync(moduleKindsToEmit, async ([outPrefix]: [string, IEmitKind]) => {
     const dirToClean: string = `${buildFolder}${outPrefix}`;
     console.log(`Cleaning '${dirToClean}'`);
     await (fs as any).promises.rm(dirToClean, { force: true, recursive: true });
@@ -264,7 +264,9 @@ export async function transpileProjectAsync(
 
   const createDirsPromise: Promise<void> = Async.forEachAsync(
     outputs.iterateParentNodes(),
-    async (dirname: string) => fs.promises.mkdir(`${buildFolder}${dirname}`, { recursive: true }),
+    async (dirname: string): Promise<void> => {
+      await fs.promises.mkdir(`${buildFolder}${dirname}`, { recursive: true });
+    },
     {
       concurrency: 20
     }
@@ -278,10 +280,8 @@ export async function transpileProjectAsync(
 
   const writePromise: Promise<void> = Async.forEachAsync(
     writeQueue,
-    async ([fileName, content]) => {
-      await fs.promises.writeFile(fileName, content, {
-        encoding: 'buffer'
-      });
+    async ([fileName, content]: [string, Buffer]): Promise<void> => {
+      await fs.promises.writeFile(fileName, content);
     },
     {
       concurrency: 20
