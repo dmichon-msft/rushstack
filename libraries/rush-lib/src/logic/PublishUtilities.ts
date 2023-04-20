@@ -43,6 +43,18 @@ interface IAddChangeOptions {
   projectsToExclude?: Set<string>;
 }
 
+interface IAggregateChangeInfo {
+  packageName: string;
+  changeType: ChangeType;
+  order: number;
+  changes: IChangeInfoWithChangeType[];
+  ignore?: boolean;
+}
+
+interface IChangeInfoWithChangeType extends IChangeInfo {
+  changeType: ChangeType;
+}
+
 export class PublishUtilities {
   /**
    * Finds change requests in the given folder.
@@ -62,6 +74,10 @@ export class PublishUtilities {
       versionPolicyChanges: new Map<string, IVersionPolicyChangeInfo>()
     };
 
+    const changesByPackageName: Map<string, IAggregateChangeInfo> = new Map();
+
+    const git: Git | undefined = includeCommitDetails ? new Git(rushConfiguration) : undefined;
+
     console.log(`Finding changes in: ${changeFiles.getChangesPath()}`);
 
     const files: string[] = changeFiles.getFiles();
@@ -70,23 +86,76 @@ export class PublishUtilities {
     for (const changeFilePath of files) {
       const changeRequest: IChangeInfo = JsonFile.load(changeFilePath);
 
-      if (includeCommitDetails) {
-        const git: Git = new Git(rushConfiguration);
+      if (!changeRequest.changes) {
+        continue;
+      }
+
+      if (git) {
         PublishUtilities._updateCommitDetails(git, changeFilePath, changeRequest.changes);
       }
 
       for (const change of changeRequest.changes!) {
-        PublishUtilities._addChange({
-          change,
-          changeFilePath,
-          allChanges,
-          allPackages,
-          rushConfiguration,
-          prereleaseToken,
-          projectsToExclude
-        });
+        const changeWithChangeType: IChangeInfoWithChangeType = getChangeTypeOrThrow(change, changeFilePath);
+
+        const { packageName } = change;
+        const changesForPackage: IAggregateChangeInfo | undefined = changesByPackageName.get(packageName);
+        if (changesForPackage) {
+          changesForPackage.changes.push(changeWithChangeType);
+        } else {
+          changesByPackageName.set(packageName, {
+            packageName,
+            changeType: changeWithChangeType.changeType,
+            order: 0,
+            changes: [changeWithChangeType],
+            ignore: false
+          });
+        }
       }
     }
+
+    for (const [packageName, changeInfo] of changesByPackageName) {
+      const project: RushConfigurationProject | undefined = rushConfiguration.getProjectByName(packageName);
+
+      if (!project) {
+        console.log(
+          `The package ${packageName} was requested for publishing but does not exist. Skip this change.`
+        );
+        changesByPackageName.delete(packageName);
+        continue;
+      }
+
+      const skipVersionBump: boolean = PublishUtilities._shouldSkipVersionBump(
+        project,
+        prereleaseToken,
+        projectsToExclude
+      );
+
+      changeInfo.ignore = skipVersionBump;
+
+      if (!skipVersionBump) {
+        let aggregateChangeType: ChangeType = changeInfo.changeType;
+        for (const change of changeInfo.changes) {
+          const { changeType } = change;
+          if (aggregateChangeType === ChangeType.hotfix && changeType > aggregateChangeType) {
+            throw new Error(
+              `Cannot apply ${this._getReleaseType(changeType)} change after hotfix on same package`
+            );
+          }
+          if (changeType === ChangeType.hotfix && aggregateChangeType > changeType) {
+            throw new Error(
+              `Cannot apply hotfix alongside ${this._getReleaseType(
+                aggregateChangeType
+              )} change on same package`
+            );
+          }
+
+          aggregateChangeType = Math.max(aggregateChangeType, changeType);
+        }
+        changeInfo.changeType = aggregateChangeType;
+      }
+    }
+
+    // Depth-first search *all* projects and get their updates
 
     // keep resolving downstream dependency changes and version policy changes
     // until no more changes are detected
@@ -329,24 +398,6 @@ export class PublishUtilities {
     }
   }
 
-  private static _getChangeTypeForSemverReleaseType(releaseType: semver.ReleaseType): ChangeType {
-    switch (releaseType) {
-      case 'major':
-        return ChangeType.major;
-      case 'minor':
-        return ChangeType.minor;
-      case 'patch':
-        return ChangeType.patch;
-      case 'premajor':
-      case 'preminor':
-      case 'prepatch':
-      case 'prerelease':
-        return ChangeType.hotfix;
-      default:
-        throw new Error(`Unsupported release type "${releaseType}"`);
-    }
-  }
-
   private static _getNewRangeDependency(newVersion: string): string {
     let upperLimit: string = newVersion;
     if (semver.prerelease(newVersion)) {
@@ -372,7 +423,7 @@ export class PublishUtilities {
     );
   }
 
-  private static _updateCommitDetails(git: Git, filename: string, changes: IChangeInfo[] | undefined): void {
+  private static _updateCommitDetails(git: Git, filename: string, changes: IChangeInfo[]): void {
     try {
       const gitPath: string = git.getGitPathOrThrow();
       const fileLog: string = execSync(`${gitPath} log -n 1 ${filename}`, {
@@ -381,7 +432,7 @@ export class PublishUtilities {
       const author: string = fileLog.match(/Author: (.*)/)![1];
       const commit: string = fileLog.match(/commit (.*)/)![1];
 
-      changes!.forEach((change) => {
+      changes.forEach((change) => {
         change.author = author;
         change.commit = commit;
       });
@@ -767,11 +818,7 @@ export class PublishUtilities {
     projectsToExclude?: Set<string>
   ): boolean {
     let hasChanges: boolean = false;
-    if (
-      dependencies &&
-      dependencies[change.packageName] &&
-      !PublishUtilities._isCyclicDependency(allPackages, parentPackageName, change.packageName)
-    ) {
+    if (dependencies && dependencies[change.packageName]) {
       const requiredVersion: DependencySpecifier = new DependencySpecifier(
         change.packageName,
         dependencies[change.packageName]
@@ -798,8 +845,8 @@ export class PublishUtilities {
             // The downstream dep will also need to be republished if using `workspace:*` as this will publish
             // as the exact version.
             changeType =
-              semver.satisfies(change.newVersion!, requiredVersion.versionSpecifier) &&
-              !isWorkspaceWildcardVersion
+              !isWorkspaceWildcardVersion &&
+              semver.satisfies(change.newVersion!, requiredVersion.versionSpecifier)
                 ? ChangeType.dependency
                 : ChangeType.patch;
           }
@@ -891,4 +938,26 @@ export class PublishUtilities {
       rushConfiguration
     });
   }
+}
+
+function getChangeTypeOrThrow(change: IChangeInfo, changeFilePath: string): IChangeInfoWithChangeType {
+  let changeType: ChangeType | undefined = change.changeType;
+  // If the given change does not have a changeType, derive it from the "type" string.
+  if (changeType !== undefined) {
+    return change as IChangeInfoWithChangeType;
+  }
+
+  changeType = Enum.tryGetValueByKey(ChangeType, change.type!);
+
+  if (changeType === undefined) {
+    if (changeFilePath) {
+      throw new Error(`Invalid change type ${JSON.stringify(change.type)} in ${changeFilePath}`);
+    } else {
+      throw new InternalError(`Invalid change type ${JSON.stringify(change.type)}`);
+    }
+  }
+
+  change.changeType = changeType;
+
+  return change as IChangeInfoWithChangeType;
 }
