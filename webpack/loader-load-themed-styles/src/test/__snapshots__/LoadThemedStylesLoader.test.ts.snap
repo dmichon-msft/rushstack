@@ -1,0 +1,24 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`LoadThemedStylesLoader correctly returns ESM output respecting loadThemedStylesPath option 1`] = `
+"import content from \\"!!./testData/MockStyle2\\";
+import { loadStyles } from \\"foo\\";
+
+var locals = content.locals || {};
+export default locals;
+if(typeof content === \\"string\\") content = [[0, content]];
+// add the styles to the DOM
+for (var i = 0; i < content.length; i++) loadStyles(content[i][1], false);"
+`;
+
+exports[`LoadThemedStylesLoader correctly returns commonjs output respecting loadThemedStylesPath option 1`] = `
+"var content = require(\\"!!./testData/MockStyle2\\");
+var loader = require(\\"foo\\");
+
+if(typeof content === \\"string\\") content = [[0, content]];
+else if(content.locals) module.exports = content.locals;
+
+// add the styles to the DOM
+for (var i = 0; i < content.length; i++) loader.loadStyles(content[i][1], false);
+"
+`;

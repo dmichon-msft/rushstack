@@ -23,6 +23,11 @@ export interface ILoadThemedStylesLoaderOptions {
    * Defaults to false.
    */
   async?: boolean;
+
+  /**
+   * The path to use for loading `@microsoft/load-themed-styles` in generated code.
+   */
+  loadThemedStylesPath?: string;
 }
 
 /**
@@ -44,6 +49,8 @@ export class LoadThemedStylesLoader {
 
   /**
    * Use this property to override the path to the `@microsoft/load-themed-styles` package.
+   * @deprecated
+   * Use the `loadThemedStylesPath` option when specifying the loader instead.
    */
   public static get loadedThemedStylesPath(): string {
     return LoadThemedStylesLoader._loadedThemedStylesPath;
@@ -62,18 +69,42 @@ export class LoadThemedStylesLoader {
       throw new Error('The "namedExport" option has been removed.');
     }
 
-    const { async = false } = options;
+    const { async = false, loadThemedStylesPath } = options;
 
-    return [
-      `var content = require(${loaderUtils.stringifyRequest(this, '!!' + remainingRequest)});`,
-      `var loader = require(${JSON.stringify(LoadThemedStylesLoader._loadedThemedStylesPath)});`,
-      '',
-      'if(typeof content === "string") content = [[module.id, content]];',
-      '',
-      '// add the styles to the DOM',
-      `for (var i = 0; i < content.length; i++) loader.loadStyles(content[i][1], ${async === true});`,
-      '',
-      'if(content.locals) module.exports = content.locals;'
-    ].join('\n');
+    const cssPath: string = loaderUtils.stringifyRequest(this, '!!' + remainingRequest);
+    const themedStylesPath: string = JSON.stringify(
+      loadThemedStylesPath ?? LoadThemedStylesLoader._loadedThemedStylesPath
+    );
+
+    switch (this._module?.type) {
+      case 'javascript/auto':
+      case 'javascript/esm':
+        return [
+          `import content from ${cssPath};`,
+          `import { loadStyles } from ${themedStylesPath};`,
+          '',
+          'var locals = content.locals || {};',
+          'export default locals;',
+          'if(typeof content === "string") content = [[0, content]];',
+          '// add the styles to the DOM',
+          `for (var i = 0; i < content.length; i++) loadStyles(content[i][1], ${async === true});`
+        ].join('\n');
+      case undefined:
+      case 'javascript/dynamic':
+        return [
+          `var content = require(${cssPath});`,
+          `var loader = require(${themedStylesPath});`,
+          '',
+          'if(typeof content === "string") content = [[0, content]];',
+          'else if(content.locals) module.exports = content.locals;',
+          '',
+          '// add the styles to the DOM',
+          `for (var i = 0; i < content.length; i++) loader.loadStyles(content[i][1], ${async === true});`,
+          ''
+        ].join('\n');
+      default:
+        this.emitError(new Error(`Unexpected module type ${this._module.type} in loader-load-themed-styles`));
+        return '';
+    }
   }
 }

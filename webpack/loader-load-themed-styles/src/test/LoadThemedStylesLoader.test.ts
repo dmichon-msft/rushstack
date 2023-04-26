@@ -90,6 +90,38 @@ describe(LoadThemedStylesLoader.name, () => {
     expect(returnedModule.exports).toEqual({});
   });
 
+  it('correctly returns ESM output respecting loadThemedStylesPath option', () => {
+    LoadThemedStylesLoader.loadedThemedStylesPath = './testData/LoadThemedStylesMock';
+
+    const loaderResult: string = LoadThemedStylesLoader.pitch.call(
+      {
+        _module: { type: 'javascript/esm' },
+        query: { loadThemedStylesPath: 'foo' }
+      } as webpack.loader.LoaderContext,
+      './testData/MockStyle2'
+    );
+
+    expect(loaderResult).toMatch(/^import \{ loadStyles \} from "foo"/m);
+    expect(loaderResult).not.toMatch(/require\(/);
+    expect(loaderResult).toMatchSnapshot();
+  });
+
+  it('correctly returns commonjs output respecting loadThemedStylesPath option', () => {
+    LoadThemedStylesLoader.loadedThemedStylesPath = './testData/LoadThemedStylesMock';
+
+    const loaderResult: string = LoadThemedStylesLoader.pitch.call(
+      {
+        _module: { type: 'javascript/dynamic' },
+        query: { loadThemedStylesPath: 'foo' }
+      } as webpack.loader.LoaderContext,
+      './testData/MockStyle2'
+    );
+
+    expect(loaderResult).toMatch(/require\("foo"\)/);
+    expect(loaderResult).not.toMatch(/^import /m);
+    expect(loaderResult).toMatchSnapshot();
+  });
+
   it('correctly handles the async option set to "true"', () => {
     LoadThemedStylesLoader.loadedThemedStylesPath = './testData/LoadThemedStylesMock';
 

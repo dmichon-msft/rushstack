@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/loader-load-themed-styles",
+      "comment": "Support `type: javascript/esm` for ESM output. Support passing `loadThemedStylesPath` in options instead of via global state.",
+      "type": "minor"
+    }
+  ],
+  "packageName": "@microsoft/loader-load-themed-styles"
+}
