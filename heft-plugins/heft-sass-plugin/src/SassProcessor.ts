@@ -10,6 +10,11 @@ import cssModules from 'postcss-modules';
 import { FileSystem, Sort } from '@rushstack/node-core-library';
 import { IStringValueTypings, StringValuesTypingsGenerator } from '@rushstack/typings-generator';
 
+export interface ICompiledOutputConfiguration {
+  type: 'commonjs' | 'esmodule';
+  folder: string;
+}
+
 /**
  * @public
  */
@@ -37,9 +42,14 @@ export interface ISassConfiguration {
   cssOutputFolders?: string[] | undefined;
 
   /**
-   * If `true`, when emitting compiled CSS from a file with a ".scss" extension, the emitted CSS will have the extension ".scss" instead of ".scss.css"
+   * Output configurations for compiled CSS and JS stubs
    */
-  preserveSCSSExtension?: boolean | undefined;
+  cssOutputs?: ICompiledOutputConfiguration[] | undefined;
+
+  /**
+   * If set, when emitting compiled CSS files from SCSS sources, will also emit a file with a \".js\" extension that redirects to the \".css\" file.
+   */
+  emitJSStubs?: boolean | undefined;
 
   /**
    * Determines whether export values are wrapped in a default property, or not.
@@ -118,10 +128,7 @@ export class SassProcessor extends StringValuesTypingsGenerator {
       ? (relativePath: string): string[] => {
           const lastDot: number = relativePath.lastIndexOf('.');
           const oldExtension: string = relativePath.slice(lastDot);
-          const cssRelativePath: string =
-            oldExtension === '.css' || (oldExtension === '.scss' && preserveSCSSExtension)
-              ? relativePath
-              : `${relativePath}.css`;
+          const cssRelativePath: string = oldExtension === '.css' ? relativePath : `${relativePath}.css`;
 
           const cssPaths: string[] = [];
           for (const outputFolder of cssOutputFolders) {
@@ -143,6 +150,32 @@ export class SassProcessor extends StringValuesTypingsGenerator {
       }
     }
 
+    const getJsPaths: ((relativePath: string) => string[]) | undefined =
+      cssOutputFolders && emitJSStubs
+        ? (relativePath: string): string[] => {
+            const lastDot: number = relativePath.lastIndexOf('.');
+            const oldExtension: string = relativePath.slice(lastDot);
+            if (oldExtension === '.css') {
+              return [];
+            }
+
+            const stubPath: string = `${relativePath}.js`;
+
+            const stubPaths: string[] = [];
+            for (const outputFolder of cssOutputFolders) {
+              stubPaths.push(`${outputFolder}/${stubPath}`);
+            }
+            return stubPaths;
+          }
+        : undefined;
+
+    const getAdditionalOutputFiles: ((relativePath: string) => string[]) | undefined =
+      getCssPaths && getJsPaths
+        ? (relativePath: string): string[] => {
+            return getCssPaths(relativePath).concat(getJsPaths(relativePath));
+          }
+        : getCssPaths;
+
     super({
       srcFolder,
       generatedTsFolder,
@@ -152,7 +185,7 @@ export class SassProcessor extends StringValuesTypingsGenerator {
       globsToIgnore,
       secondaryGeneratedTsFolders,
 
-      getAdditionalOutputFiles: getCssPaths,
+      getAdditionalOutputFiles,
 
       // Generate typings function
       parseAndGenerateTypings: async (fileContents: string, filePath: string, relativePath: string) => {
@@ -189,6 +222,18 @@ export class SassProcessor extends StringValuesTypingsGenerator {
         if (getCssPaths) {
           await Promise.all(
             getCssPaths(relativePath).map(async (cssFile: string) => {
+              // The typings generator processes files serially and the number of output folders is expected to be small,
+              // thus throttling here is not currently a concern.
+              await FileSystem.writeFileAsync(cssFile, css, {
+                ensureFolderExists: true
+              });
+            })
+          );
+        }
+
+        if (getJsPaths) {
+          await Promise.all(
+            getJsPaths(relativePath).map(async (cssFile: string) => {
               // The typings generator processes files serially and the number of output folders is expected to be small,
               // thus throttling here is not currently a concern.
               await FileSystem.writeFileAsync(cssFile, css, {

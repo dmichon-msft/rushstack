@@ -49,9 +49,22 @@
       }
     },
 
-    "preserveSCSSExtension": {
-      "type": "boolean",
-      "description": "If set, when emitting compiled CSS from a file with a \".scss\" extension, the emitted CSS will have the extension \".scss\" instead of \".scss.css\"."
+    "cssJsOutputs": {
+      "type": "array",
+      "description": "If set, when emitting compiled CSS files from SCSS sources, will also emit a file with a \".js\" extension that redirects to the \".css\" file.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": ["commonjs", "esmodule"]
+          },
+          "folder": {
+            "type": "string",
+            "pattern": "[^\\\\]"
+          }
+        }
+      }
     },
 
     "fileExtensions": {
