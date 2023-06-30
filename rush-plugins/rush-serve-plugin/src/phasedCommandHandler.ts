@@ -109,7 +109,8 @@ export async function phasedCommandHandler(options: IPhasedCommandHandlerOptions
       const wbnRegex: RegExp = /\.wbn$/i;
       function setHeaders(response: express.Response, path?: string, stat?: unknown): void {
         response.set('Access-Control-Allow-Origin', '*');
-        response.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        response.set('Access-Control-Allow-Methods', 'HEAD, GET, OPTIONS');
+        response.set('Access-Control-Expose-Headers', 'X-Content-Type-Options');
 
         // TODO: Generalize headers and MIME types with an external database or JSON file.
         if (path && wbnRegex.test(path)) {
@@ -128,6 +129,17 @@ export async function phasedCommandHandler(options: IPhasedCommandHandlerOptions
             );
           } else {
             fileRoutingRules.set(diskPath, rule);
+            app.options(servePath, (request: express.Request, response: express.Response) => {
+              response.status(204);
+              if (request.get('access-control-request-private-network')) {
+                response.set('access-control-allow-private-network', 'true');
+              }
+              const origin: string | undefined = request.get('origin');
+              response.set('Access-Control-Allow-Origin', origin ?? '*');
+              response.set('Access-Control-Allow-Methods', 'HEAD, GET, OPTIONS');
+              response.set('Access-Control-Expose-Headers', 'X-Content-Type-Options');
+              response.send();
+            });
             app.get(servePath, (request: express.Request, response: express.Response) => {
               response.sendFile(diskPath, {
                 headers: {
