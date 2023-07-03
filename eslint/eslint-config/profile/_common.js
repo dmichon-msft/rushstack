@@ -162,6 +162,16 @@ function buildRules(profile) {
           //                    (interfaces, enums, functions, etc.) instead of freeform type algebra.
           '@typescript-eslint/consistent-type-definitions': 'warn',
 
+          '@typescript-eslint/consistent-type-imports': [
+            'warn',
+            {
+              prefer: 'type-imports',
+              fixStyle: 'separate-type-imports'
+            }
+          ],
+
+          '@typescript-eslint/no-import-type-side-effects': 'warn',
+
           // RATIONALE:         Code is more readable when the type of every variable is immediately obvious.
           //                    Even if the compiler may be able to infer a type, this inference will be unavailable
           //                    to a person who is reviewing a GitHub diff.  This rule makes writing code harder,
