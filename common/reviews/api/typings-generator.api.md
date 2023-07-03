@@ -7,7 +7,7 @@
 import { ITerminal } from '@rushstack/node-core-library';
 
 // @public (undocumented)
-export interface IStringValuesTypingsGeneratorOptions extends ITypingsGeneratorOptions<IStringValueTypings | undefined> {
+export interface IStringValuesTypingsGeneratorOptions extends ITypingsGeneratorFileContentOptions<IStringValueTypings | undefined> {
     exportAsDefault?: boolean;
     exportAsDefaultInterfaceName?: string;
 }
@@ -41,16 +41,32 @@ export interface ITypingsGeneratorBaseOptions {
 }
 
 // @public (undocumented)
-export interface ITypingsGeneratorOptions<TTypingsResult = string | undefined> extends ITypingsGeneratorBaseOptions {
+export interface ITypingsGeneratorFileContentOptions<TTypingsResult = string | undefined> extends ITypingsGeneratorFileOptions {
+    // (undocumented)
+    generateTypingsForFile?: undefined;
+    // (undocumented)
+    parseAndGenerateTypings: (fileContents: string, filePath: string, relativePath: string) => TTypingsResult | Promise<TTypingsResult>;
+}
+
+// @public (undocumented)
+export interface ITypingsGeneratorFileNoContentOptions<TTypingsResult = string | undefined> extends ITypingsGeneratorFileOptions {
+    generateTypingsForFile: (filePath: string, relativePath: string) => TTypingsResult | Promise<TTypingsResult>;
+    // (undocumented)
+    parseAndGenerateTypings?: undefined;
+}
+
+// @public (undocumented)
+export interface ITypingsGeneratorFileOptions extends ITypingsGeneratorBaseOptions {
     // (undocumented)
     fileExtensions: string[];
     // @deprecated (undocumented)
     filesToIgnore?: string[];
     // (undocumented)
     getAdditionalOutputFiles?: (relativePath: string) => string[];
-    // (undocumented)
-    parseAndGenerateTypings: (fileContents: string, filePath: string, relativePath: string) => TTypingsResult | Promise<TTypingsResult>;
 }
+
+// @public (undocumented)
+export type ITypingsGeneratorOptions<TTypingsResult = string | undefined> = ITypingsGeneratorFileContentOptions<TTypingsResult> | ITypingsGeneratorFileNoContentOptions<TTypingsResult>;
 
 // @public
 export class StringValuesTypingsGenerator extends TypingsGenerator {

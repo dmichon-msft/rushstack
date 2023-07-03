@@ -30,14 +30,8 @@ export interface ITypingsGeneratorBaseOptions {
 /**
  * @public
  */
-export interface ITypingsGeneratorOptions<TTypingsResult = string | undefined>
-  extends ITypingsGeneratorBaseOptions {
+export interface ITypingsGeneratorFileOptions extends ITypingsGeneratorBaseOptions {
   fileExtensions: string[];
-  parseAndGenerateTypings: (
-    fileContents: string,
-    filePath: string,
-    relativePath: string
-  ) => TTypingsResult | Promise<TTypingsResult>;
   getAdditionalOutputFiles?: (relativePath: string) => string[];
   /**
    * @deprecated
@@ -46,6 +40,41 @@ export interface ITypingsGeneratorOptions<TTypingsResult = string | undefined>
    */
   filesToIgnore?: string[];
 }
+
+/**
+ * @public
+ */
+export interface ITypingsGeneratorFileContentOptions<TTypingsResult = string | undefined>
+  extends ITypingsGeneratorFileOptions {
+  parseAndGenerateTypings: (
+    fileContents: string,
+    filePath: string,
+    relativePath: string
+  ) => TTypingsResult | Promise<TTypingsResult>;
+  generateTypingsForFile?: undefined;
+}
+
+/**
+ * @public
+ */
+export interface ITypingsGeneratorFileNoContentOptions<TTypingsResult = string | undefined>
+  extends ITypingsGeneratorFileOptions {
+  parseAndGenerateTypings?: undefined;
+  /**
+   * Preferred over {@link ITypingsGeneratorFileContentOptions.parseAndGenerateTypings} as it hands control over reading the source file to the implementer.
+   */
+  generateTypingsForFile: (
+    filePath: string,
+    relativePath: string
+  ) => TTypingsResult | Promise<TTypingsResult>;
+}
+
+/**
+ * @public
+ */
+export type ITypingsGeneratorOptions<TTypingsResult = string | undefined> =
+  | ITypingsGeneratorFileContentOptions<TTypingsResult>
+  | ITypingsGeneratorFileNoContentOptions<TTypingsResult>;
 
 /**
  * This is a simple tool that generates .d.ts files for non-TS files.
@@ -88,34 +117,50 @@ export class TypingsGenerator {
       throw new Error('The filesToIgnore option is no longer supported. Please use globsToIgnore instead.');
     }
 
-    if (!this._options.generatedTsFolder) {
+    if (!options.generatedTsFolder) {
       throw new Error('generatedTsFolder must be provided');
     }
 
-    if (!this._options.srcFolder) {
+    if (!options.srcFolder) {
       throw new Error('srcFolder must be provided');
     }
-    this.sourceFolderPath = this._options.srcFolder;
+    this.sourceFolderPath = options.srcFolder;
 
-    if (Path.isUnder(this._options.srcFolder, this._options.generatedTsFolder)) {
+    if (Path.isUnder(options.srcFolder, options.generatedTsFolder)) {
       throw new Error('srcFolder must not be under generatedTsFolder');
     }
 
-    if (Path.isUnder(this._options.generatedTsFolder, this._options.srcFolder)) {
+    if (Path.isUnder(options.generatedTsFolder, options.srcFolder)) {
       throw new Error('generatedTsFolder must not be under srcFolder');
     }
 
-    if (!this._options.fileExtensions || this._options.fileExtensions.length === 0) {
+    if (!options.fileExtensions || options.fileExtensions.length === 0) {
       throw new Error('At least one file extension must be provided.');
     }
 
-    this.ignoredFileGlobs = this._options.globsToIgnore || [];
+    const { parseAndGenerateTypings } = options;
+    if (!parseAndGenerateTypings && !options.generateTypingsForFile) {
+      throw new Error(`At least one of parseAndGenerateTypings or generateTypingsForFile must be provided.`);
+    }
+
+    if (parseAndGenerateTypings) {
+      if (options.generateTypingsForFile) {
+        throw new Error(`Only one of parseAndGenerateTypings or generateTypingsForFile may be provided.`);
+      }
+
+      this._options.generateTypingsForFile = async (filePath: string, relativePath: string) => {
+        const fileContents: string = await FileSystem.readFileAsync(filePath);
+        return parseAndGenerateTypings(fileContents, filePath, relativePath);
+      };
+    }
+
+    this.ignoredFileGlobs = options.globsToIgnore || [];
 
     if (!this._options.terminal) {
       this._options.terminal = new Terminal(new ConsoleTerminalProvider({ verboseEnabled: true }));
     }
 
-    this._options.fileExtensions = this._normalizeFileExtensions(this._options.fileExtensions);
+    this._options.fileExtensions = this._normalizeFileExtensions(options.fileExtensions);
 
     this._dependenciesOfFile = new Map();
     this._consumersOfFile = new Map();
@@ -281,20 +326,18 @@ export class TypingsGenerator {
         if (!relativePath) {
           throw new Error(`Missing relative path for file ${resolvedPath}`);
         }
-        await this._parseFileAndGenerateTypingsAsync(relativePath, resolvedPath);
+        await this._generateTypingsForFileAsync(relativePath, resolvedPath);
       },
       { concurrency: 20 }
     );
   }
 
-  private async _parseFileAndGenerateTypingsAsync(relativePath: string, resolvedPath: string): Promise<void> {
+  private async _generateTypingsForFileAsync(relativePath: string, resolvedPath: string): Promise<void> {
     // Clear registered dependencies prior to reprocessing.
     this._clearDependencies(resolvedPath);
 
     try {
-      const fileContents: string = await FileSystem.readFileAsync(resolvedPath);
-      const typingsData: string | undefined = await this._options.parseAndGenerateTypings(
-        fileContents,
+      const typingsData: string | undefined = await this._options.generateTypingsForFile!(
         resolvedPath,
         relativePath
       );
@@ -319,7 +362,7 @@ export class TypingsGenerator {
       }
     } catch (e) {
       this._options.terminal!.writeError(
-        `Error occurred parsing and generating typings for file "${resolvedPath}": ${e}`
+        `Error occurred generating typings for file "${resolvedPath}": ${e}`
       );
     }
   }

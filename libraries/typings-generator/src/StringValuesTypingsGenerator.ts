@@ -3,7 +3,7 @@
 
 import { EOL } from 'os';
 
-import { ITypingsGeneratorOptions, TypingsGenerator } from './TypingsGenerator';
+import { ITypingsGeneratorFileContentOptions, TypingsGenerator } from './TypingsGenerator';
 
 /**
  * @public
@@ -24,7 +24,7 @@ export interface IStringValueTypings {
  * @public
  */
 export interface IStringValuesTypingsGeneratorOptions
-  extends ITypingsGeneratorOptions<IStringValueTypings | undefined> {
+  extends ITypingsGeneratorFileContentOptions<IStringValueTypings | undefined> {
   /**
    * Setting this option wraps the typings export in a default property.
    */
@@ -47,59 +47,59 @@ const EXPORT_AS_DEFAULT_INTERFACE_NAME: string = 'IExport';
  */
 export class StringValuesTypingsGenerator extends TypingsGenerator {
   public constructor(options: IStringValuesTypingsGeneratorOptions) {
-    super({
-      ...options,
-      parseAndGenerateTypings: async (fileContents: string, filePath: string, relativePath: string) => {
-        const stringValueTypings: IStringValueTypings | undefined = await options.parseAndGenerateTypings(
-          fileContents,
-          filePath,
-          relativePath
-        );
-
-        if (stringValueTypings === undefined) {
-          return;
-        }
-
-        const outputLines: string[] = [];
-        const interfaceName: string = options.exportAsDefaultInterfaceName
-          ? options.exportAsDefaultInterfaceName
-          : EXPORT_AS_DEFAULT_INTERFACE_NAME;
-        let indent: string = '';
-        if (options.exportAsDefault) {
-          outputLines.push(`export interface ${interfaceName} {`);
-          indent = '  ';
-        }
-
-        for (const stringValueTyping of stringValueTypings.typings) {
-          const { exportName, comment } = stringValueTyping;
-
-          if (comment && comment.trim() !== '') {
-            outputLines.push(
-              `${indent}/**`,
-              `${indent} * ${comment.replace(/\*\//g, '*\\/')}`,
-              `${indent} */`
-            );
-          }
-
-          if (options.exportAsDefault) {
-            outputLines.push(`${indent}'${exportName}': string;`, '');
-          } else {
-            outputLines.push(`export declare const ${exportName}: string;`, '');
-          }
-        }
-
-        if (options.exportAsDefault) {
-          outputLines.push(
-            '}',
-            '',
-            `declare const strings: ${interfaceName};`,
-            '',
-            'export default strings;'
-          );
-        }
-
-        return outputLines.join(EOL);
-      }
-    });
+    super(wrapOptions(options));
   }
+}
+
+function wrapOptions(
+  options: IStringValuesTypingsGeneratorOptions
+): ITypingsGeneratorFileContentOptions<string | undefined> {
+  return {
+    ...options,
+    parseAndGenerateTypings: async (
+      fileContents: string,
+      filePath: string,
+      relativePath: string
+    ): Promise<string | undefined> => {
+      const stringValueTypings: IStringValueTypings | undefined = await options.parseAndGenerateTypings(
+        fileContents,
+        filePath,
+        relativePath
+      );
+
+      if (stringValueTypings === undefined) {
+        return;
+      }
+
+      const outputLines: string[] = [];
+      const interfaceName: string = options.exportAsDefaultInterfaceName
+        ? options.exportAsDefaultInterfaceName
+        : EXPORT_AS_DEFAULT_INTERFACE_NAME;
+      let indent: string = '';
+      if (options.exportAsDefault) {
+        outputLines.push(`export interface ${interfaceName} {`);
+        indent = '  ';
+      }
+
+      for (const stringValueTyping of stringValueTypings.typings) {
+        const { exportName, comment } = stringValueTyping;
+
+        if (comment && comment.trim() !== '') {
+          outputLines.push(`${indent}/**`, `${indent} * ${comment.replace(/\*\//g, '*\\/')}`, `${indent} */`);
+        }
+
+        if (options.exportAsDefault) {
+          outputLines.push(`${indent}'${exportName}': string;`, '');
+        } else {
+          outputLines.push(`export declare const ${exportName}: string;`, '');
+        }
+      }
+
+      if (options.exportAsDefault) {
+        outputLines.push('}', '', `declare const strings: ${interfaceName};`, '', 'export default strings;');
+      }
+
+      return outputLines.join(EOL);
+    }
+  };
 }
