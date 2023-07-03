@@ -20,4 +20,14 @@ export interface IExtendedLinter extends TrimmedLinter {
    * https://github.com/palantir/tslint/blob/24d29e421828348f616bf761adb3892bcdf51662/src/linter.ts#L303-L306
    */
   getEnabledRules(configuration: TTslint.Configuration.IConfigurationFile, isJs: boolean): TTslint.IRule[];
+
+  /**
+   * https://github.com/palantir/tslint/blob/24d29e421828348f616bf761adb3892bcdf51662/src/linter.ts#L212-L217
+   */
+  applyAllFixes(
+    enabledRules: TTslint.IRule[],
+    fileFailures: TTslint.RuleFailure[],
+    sourceFile: TTypescript.SourceFile,
+    sourceFileName: string
+  ): TTslint.RuleFailure[];
 }

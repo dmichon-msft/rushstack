@@ -23,6 +23,8 @@ const TYPESCRIPT_PLUGIN_NAME: typeof TypeScriptPluginName = 'typescript-plugin';
 const ESLINTRC_JS_FILENAME: string = '.eslintrc.js';
 const ESLINTRC_CJS_FILENAME: string = '.eslintrc.cjs';
 
+const FIX_PARAMETER_LONG_NAME: '--fix' = '--fix';
+
 export default class LintPlugin implements IHeftTaskPlugin {
   private readonly _lintingPromises: Promise<void>[] = [];
 
@@ -158,7 +160,8 @@ export default class LintPlugin implements IHeftTaskPlugin {
       eslintPackagePath: eslintToolPath,
       linterConfigFilePath: eslintConfigFilePath,
       buildFolderPath: heftConfiguration.buildFolderPath,
-      buildMetadataFolderPath: taskSession.tempFolderPath
+      buildMetadataFolderPath: taskSession.tempFolderPath,
+      autofix: taskSession.parameters.getFlagParameter(FIX_PARAMETER_LONG_NAME)!.value
     });
 
     eslint.printVersionHeader();
@@ -184,7 +187,8 @@ export default class LintPlugin implements IHeftTaskPlugin {
       tslintPackagePath: tslintToolPath,
       linterConfigFilePath: tslintConfigFilePath,
       buildFolderPath: heftConfiguration.buildFolderPath,
-      buildMetadataFolderPath: taskSession.tempFolderPath
+      buildMetadataFolderPath: taskSession.tempFolderPath,
+      autofix: taskSession.parameters.getFlagParameter(FIX_PARAMETER_LONG_NAME)!.value
     });
 
     tslint.printVersionHeader();

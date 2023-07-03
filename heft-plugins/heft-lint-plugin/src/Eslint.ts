@@ -85,7 +85,8 @@ export class Eslint extends LinterBase<TEslint.ESLint.LintResult> {
         parserOptions: {
           programs: [tsProgram]
         }
-      }
+      },
+      fix: this._autofix
     });
   }
 
@@ -99,6 +100,11 @@ export class Eslint extends LinterBase<TEslint.ESLint.LintResult> {
       if (lintResult.messages.length > 0) {
         failures.push(lintResult);
       }
+    }
+
+    if (this._autofix && failures.length) {
+      this._terminal.writeLine('Applying fixes...');
+      await this._eslintPackage.ESLint.outputFixes(failures);
     }
 
     return failures;

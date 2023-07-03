@@ -17,6 +17,11 @@ export interface ILinterBaseOptions {
    */
   buildMetadataFolderPath: string;
   linterConfigFilePath: string;
+
+  /**
+   * If true, apply autofixes for lint errors/warnings to the source files.
+   */
+  autofix?: boolean;
 }
 
 export interface IRunLinterOptions {
@@ -53,6 +58,7 @@ export abstract class LinterBase<TLintResult> {
   protected readonly _buildFolderPath: string;
   protected readonly _buildMetadataFolderPath: string;
   protected readonly _linterConfigFilePath: string;
+  protected readonly _autofix: boolean;
 
   private readonly _linterName: string;
 
@@ -63,6 +69,7 @@ export abstract class LinterBase<TLintResult> {
     this._buildMetadataFolderPath = options.buildMetadataFolderPath;
     this._linterConfigFilePath = options.linterConfigFilePath;
     this._linterName = linterName;
+    this._autofix = !!options.autofix;
   }
 
   public abstract printVersionHeader(): void;

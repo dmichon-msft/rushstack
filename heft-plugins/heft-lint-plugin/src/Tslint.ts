@@ -14,6 +14,8 @@ interface ITslintOptions extends ILinterBaseOptions {
   tslintPackagePath: string;
 }
 
+const MAX_ITERATIONS: number = 3;
+
 export class Tslint extends LinterBase<TTslint.RuleFailure> {
   private _tslint: typeof TTslint;
   private _tslintConfiguration!: TTslint.Configuration.IConfigurationFile;
@@ -118,7 +120,17 @@ export class Tslint extends LinterBase<TTslint.RuleFailure> {
     // Some of this code comes from here:
     // https://github.com/palantir/tslint/blob/24d29e421828348f616bf761adb3892bcdf51662/src/linter.ts#L161-L179
     // Modified to only lint files that have changed and that we care about
-    const failures: TTslint.RuleFailure[] = this._linter.getAllFailures(sourceFile, this._enabledRules);
+    let failures: TTslint.RuleFailure[] = this._linter.getAllFailures(sourceFile, this._enabledRules);
+
+    for (let i: number = 0; this._autofix && failures.some((failure) => failure.hasFix()); i++) {
+      failures = this._linter.applyAllFixes(this._enabledRules, failures, sourceFile, sourceFile.fileName);
+      if (i >= MAX_ITERATIONS) {
+        throw new Error(
+          `Failed to apply all fixes after ${MAX_ITERATIONS} iterations. ` +
+            `Please check your tslint configuration for rule conflicts.`
+        );
+      }
+    }
 
     for (const failure of failures) {
       const severity: TTslint.RuleSeverity | undefined = this._ruleSeverityMap.get(failure.getRuleName());

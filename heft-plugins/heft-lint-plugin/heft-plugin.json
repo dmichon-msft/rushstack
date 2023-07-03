@@ -4,7 +4,16 @@
   "taskPlugins": [
     {
       "pluginName": "lint-plugin",
-      "entryPoint": "./lib/LintPlugin"
+      "entryPoint": "./lib/LintPlugin",
+
+      "parameterScope": "lint",
+      "parameters": [
+        {
+          "longName": "--fix",
+          "parameterKind": "flag",
+          "description": "If set, automatically apply any defined fixes to encountered lint errors/warnings."
+        }
+      ]
     }
   ]
 }
