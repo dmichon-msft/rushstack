@@ -841,6 +841,42 @@ export class FileSystem {
   }
 
   /**
+   * Writes the specified series of Buffers to a file asynchronously.
+   *
+   * Uses the writev syscall.
+   */
+  public static async writeBuffersToFileAsync(
+    filePath: string,
+    contents: Iterable<Buffer>,
+    options?: Pick<IFileSystemWriteFileOptions, 'ensureFolderExists'>
+  ): Promise<void> {
+    await FileSystem._wrapExceptionAsync(async () => {
+      const handle: fs.promises.FileHandle = await FileSystem._openFileForWritingAsync(
+        filePath,
+        options ?? WRITE_FILE_DEFAULT_OPTIONS
+      );
+      const toCopy: Buffer[] = [...contents];
+      let position: number = 0;
+      try {
+        // In practice this loop will have exactly 1 iteration, but the spec allows
+        // for a writev call to write fewer bytes than requested
+        while (toCopy.length) {
+          if (position > 0) {
+            toCopy[0] = toCopy[0].slice(position);
+            position = 0;
+          }
+          position += (await handle.writev(toCopy)).bytesWritten;
+          while (toCopy.length && position >= toCopy[0].byteLength) {
+            position -= toCopy.shift()!.byteLength;
+          }
+        }
+      } finally {
+        await handle.close();
+      }
+    });
+  }
+
+  /**
    * Writes a text string to a file on disk, appending to the file if it already exists.
    * Behind the scenes it uses `fs.appendFileSync()`.
    * @remarks
@@ -1479,6 +1515,23 @@ export class FileSystem {
           throw error;
         }
       }
+    }
+  }
+
+  private static async _openFileForWritingAsync(
+    filePath: string,
+    options: Pick<IFileSystemWriteFileOptions, 'ensureFolderExists'>
+  ): Promise<fs.promises.FileHandle> {
+    try {
+      return fs.promises.open(filePath, 'w');
+    } catch (error) {
+      if (!options.ensureFolderExists || !FileSystem.isNotExistError(error)) {
+        throw error;
+      }
+
+      const folderPath: string = nodeJsPath.dirname(filePath);
+      await FileSystem.ensureFolderAsync(folderPath);
+      return fs.promises.open(filePath, 'w');
     }
   }
 
