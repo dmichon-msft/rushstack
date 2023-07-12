@@ -262,7 +262,9 @@ export class OperationExecutionManager {
         const blockedQueue: Set<OperationExecutionRecord> = new Set(record.consumers);
         for (const blockedRecord of blockedQueue) {
           if (blockedRecord.status === OperationStatus.Ready) {
-            this._completedOperations++;
+            if (!blockedRecord.runner.silent) {
+              this._completedOperations++;
+            }
 
             // Now that we have the concept of architectural no-ops, we could implement this by replacing
             // {blockedRecord.runner} with a no-op that sets status to Blocked and logs the blocking
