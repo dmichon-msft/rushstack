@@ -1518,6 +1518,9 @@ export class FileSystem {
     }
   }
 
+  /**
+   * Opens a handle to write a file, optionally ensuring the containing folder exists.
+   */
   private static async _openFileForWritingAsync(
     filePath: string,
     options: Pick<IFileSystemWriteFileOptions, 'ensureFolderExists'>
