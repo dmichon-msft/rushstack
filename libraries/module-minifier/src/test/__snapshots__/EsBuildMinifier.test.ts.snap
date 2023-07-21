@@ -1,0 +1,18 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`EsBuildMinifier Can remove dead code without mangling: code 1`] = `
+"__MINIFY_MODULE__(function(module, __webpack_exports__, __webpack_require__) {
+  let x;
+  const y = 1;
+  console.log(y);
+});
+"
+`;
+
+exports[`EsBuildMinifier Includes esbuild package version in config hash: esbuild-0.1.2 1`] = `"K+ci3CvRWAdihkUzYOjEwA47mpGqbVFVF9EPsE1tSXc="`;
+
+exports[`EsBuildMinifier Includes esbuild package version in config hash: esbuild-3.4.5 1`] = `"cwAsDpIuWQwXaOADtxcBkXsniS17WOfQ5cddI/Gx6C4="`;
+
+exports[`EsBuildMinifier Includes transformOptions in config hash: ecma5 1`] = `"x6g1UIApx9k5pcXyLX6ekWtkrBvgYR0REDCQFTqAI5w="`;
+
+exports[`EsBuildMinifier Includes transformOptions in config hash: ecma2015 1`] = `"IJFDpJsehOGhunhdIJt9DS31pAHPcVdZAGIKBLqw8DQ="`;

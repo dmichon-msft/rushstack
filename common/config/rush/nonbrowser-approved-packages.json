@@ -419,6 +419,10 @@
       "allowedCategories": [ "libraries" ]
     },
     {
+      "name": "esbuild",
+      "allowedCategories": [ "libraries" ]
+    },
+    {
       "name": "eslint",
       "allowedCategories": [ "libraries", "tests" ]
     },

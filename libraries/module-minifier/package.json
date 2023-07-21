@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@rushstack/worker-pool": "workspace:*",
+    "esbuild": "0.18.15",
     "serialize-javascript": "6.0.0",
     "source-map": "~0.7.3",
     "terser": "^5.9.0"

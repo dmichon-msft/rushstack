@@ -3,6 +3,8 @@
 
   "compilerOptions": {
     "allowSyntheticDefaultImports": true,
+    // DOM for WebAssembly
+    "lib": ["es2019", "dom"],
     "target": "ES2019",
     "types": ["heft-jest", "node"]
   }
