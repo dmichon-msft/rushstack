@@ -46,7 +46,10 @@ export async function minifySingleFileAsync(
       format,
       mangle
     };
-    format.comments = false;
+
+    if (format.comments === undefined) {
+      format.comments = false;
+    }
 
     if (mangle) {
       mangle.nth_identifier = nth_identifier;

@@ -1,5 +1,15 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`minifySingleFileAsync allows performing only dead code elimination 1`] = `
+Object {
+  "code": "__MINIFY_MODULE__((function(module,__webpack_exports__,__webpack_require__){
+/* other comment */var y=10;console.log(y)}));",
+  "error": undefined,
+  "hash": "foo",
+  "map": undefined,
+}
+`;
+
 exports[`minifySingleFileAsync uses consistent identifiers for webpack vars 1`] = `
 Object {
   "code": "__MINIFY_MODULE__((function(e,t,n){}));",
