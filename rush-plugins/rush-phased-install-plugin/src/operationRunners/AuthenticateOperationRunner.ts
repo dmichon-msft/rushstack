@@ -6,6 +6,7 @@ import https, { type Agent } from 'node:https';
 import type { IOperationRunner, IOperationRunnerContext } from '@rushstack/rush-sdk';
 import type { IDependencyMetadata, IRefCount } from '../types';
 import { OperationStatus } from '../externals';
+import getNpmTarballUrl from 'get-npm-tarball-url';
 
 function noop(): void {
   // Do nothing.
@@ -86,7 +87,16 @@ export class AuthenticateOperationRunner implements IOperationRunner {
     };
 
     // eslint-disable-next-line require-atomic-updates
-    tarball.storageUrl = await this._fetchInternal(options, 3);
+    // tarball.storageUrl = await this._fetchInternal(options, 3);
+
+    // to support registry that no need auth
+    const registryUrlWithoutAuth: string = 'https://registry.npmjs.org/';
+
+    const tarballUrl: string = getNpmTarballUrl(packageName, version, {
+      registry: registryUrlWithoutAuth
+    });
+
+    tarball.storageUrl = tarballUrl;
   }
 
   private async _fetchInternal(options: https.RequestOptions, retryLeft: number): Promise<string> {

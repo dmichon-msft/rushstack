@@ -39,7 +39,7 @@ import { UnpackOperationRunner } from './operationRunners/UnpackOperationRunner'
 import { InstallOperationRunner } from './operationRunners/InstallOperationRunner';
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
-declare const __non_webpack_require__: typeof require;
+// declare const __non_webpack_require__: typeof require;
 
 /**
  * Creates a synthetic phase for tracking purposes.
@@ -138,7 +138,7 @@ export async function apply(
       id: 'tarball',
       maxWorkers: parallelism,
       // If bundling, this resolution target should point at the bundled script for better performance
-      workerScriptPath: __non_webpack_require__.resolve('./tarballWorker.js')
+      workerScriptPath: require.resolve('./worker/tarballWorker.js')
     })
   };
 

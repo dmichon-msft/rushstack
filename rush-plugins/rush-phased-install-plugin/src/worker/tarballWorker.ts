@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import { parentPort } from 'node:worker_threads';
 
-import { gunzipSync, type IDecompressResult } from '../gunzipSync';
+import { gunzipSync, type IDecompressResult } from './gunzipSync';
 
 import type { IParseResult, ITarballExtractMessage, ITarballParseMessage } from '../types';
 

@@ -51,6 +51,10 @@
       "allowedCategories": [ "libraries" ]
     },
     {
+      "name": "get-npm-tarball-url",
+      "allowedCategories": [ "libraries" ]
+    },
+    {
       "name": "office-ui-fabric-core",
       "allowedCategories": [ "libraries" ]
     },

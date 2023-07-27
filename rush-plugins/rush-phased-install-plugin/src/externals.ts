@@ -21,17 +21,19 @@ type OperationStatus = OperationStatusType;
 
 export { Operation, OperationStatus };
 
+/*
 // eslint-disable-next-line @typescript-eslint/naming-convention
 declare const __non_webpack_require__: typeof require;
+*/
+const entryModule: Module = require.main!;
 
-const entryModule: Module = __non_webpack_require__.main!;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getExternal(name: string): any {
-  const externalPath: string = __non_webpack_require__.resolve(name, {
+  const externalPath: string = require.resolve(name, {
     paths: entryModule.paths
   });
 
-  return __non_webpack_require__(externalPath);
+  return require(externalPath);
 }
 
 // Private Rush APIs
