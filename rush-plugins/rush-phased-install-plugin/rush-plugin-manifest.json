@@ -4,7 +4,7 @@
     {
       "pluginName": "rush-phased-install-plugin",
       "description": "Rush plugin that implements package manager installation in a phased command.",
-      "entryPoint": "dist/rush-phased-install-plugin.js",
+      "entryPoint": "lib/rush-phased-install-plugin.js",
       "associatedCommands": ["phased-install"]
     }
   ]
