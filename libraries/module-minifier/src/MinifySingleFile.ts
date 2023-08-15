@@ -12,7 +12,11 @@ declare module 'terser' {
 }
 
 import { getIdentifier } from './MinifiedIdentifier';
-import type { IModuleMinificationRequest, IModuleMinificationResult } from './types';
+import type {
+  IModuleMinificationRequest,
+  IModuleMinificationResult,
+  IModuleMinificationSuccessResult
+} from './types';
 
 const nth_identifier: SimpleIdentifierMangler = {
   get: getIdentifier
@@ -24,7 +28,8 @@ const nth_identifier: SimpleIdentifierMangler = {
  */
 export async function minifySingleFileAsync(
   request: IModuleMinificationRequest,
-  terserOptions: MinifyOptions
+  terserOptions: MinifyOptions,
+  useDecodedMap?: boolean
 ): Promise<IModuleMinificationResult> {
   const { code, nameForMap, hash, externals } = request;
 
@@ -69,19 +74,23 @@ export async function minifySingleFileAsync(
       finalOptions
     );
 
-    return {
+    const result: IModuleMinificationSuccessResult = {
+      hash,
       error: undefined,
       code: minified.code!,
-      map: minified.map as unknown as RawSourceMap,
-      hash
+      decodedMap: useDecodedMap ? minified.decoded_map : undefined,
+      map: useDecodedMap ? undefined : minified.map
     };
+
+    return result;
   } catch (error) {
     console.error(error);
     return {
+      hash,
       error: error as Error,
       code: undefined,
-      map: undefined,
-      hash
+      decodedMap: undefined,
+      map: undefined
     };
   }
 }

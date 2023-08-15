@@ -20,6 +20,7 @@ import { minifySingleFileAsync } from './MinifySingleFile';
  */
 export interface ILocalMinifierOptions {
   terserOptions?: MinifyOptions;
+  useDecodedMap?: boolean;
 }
 
 /**
@@ -31,9 +32,10 @@ export class LocalMinifier implements IModuleMinifier {
 
   private readonly _resultCache: Map<string, IModuleMinificationResult>;
   private readonly _configHash: string;
+  private readonly _useDecodedMap: boolean;
 
   public constructor(options: ILocalMinifierOptions) {
-    const { terserOptions = {} } = options || {};
+    const { terserOptions = {}, useDecodedMap = false } = options || {};
 
     this._terserOptions = {
       ...terserOptions,
@@ -52,6 +54,8 @@ export class LocalMinifier implements IModuleMinifier {
       .update(serialize(terserOptions))
       .digest('base64');
 
+    this._useDecodedMap = useDecodedMap;
+
     this._resultCache = new Map();
   }
 
@@ -68,7 +72,7 @@ export class LocalMinifier implements IModuleMinifier {
       return callback(cached);
     }
 
-    minifySingleFileAsync(request, this._terserOptions)
+    minifySingleFileAsync(request, this._terserOptions, this._useDecodedMap)
       .then((result: IModuleMinificationResult) => {
         this._resultCache.set(hash, result);
         callback(result);
@@ -76,10 +80,11 @@ export class LocalMinifier implements IModuleMinifier {
       .catch((error) => {
         // This branch is here to satisfy the no-floating-promises lint rule
         callback({
+          hash,
           error: error as Error,
           code: undefined,
-          map: undefined,
-          hash
+          decodedMap: undefined,
+          map: undefined
         });
       });
   }

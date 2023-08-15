@@ -37,6 +37,7 @@
     }
   },
   "dependencies": {
+    "@ampproject/remapping": "2.2.1",
     "@rushstack/module-minifier": "workspace:*",
     "@rushstack/worker-pool": "workspace:*",
     "@types/tapable": "1.0.6",

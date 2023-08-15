@@ -46,6 +46,10 @@ export interface IModuleMinificationErrorResult {
   /**
    * Marker property to always return the same result shape.
    */
+  decodedMap?: undefined;
+  /**
+   * Marker property to always return the same result shape.
+   */
   map?: undefined;
 }
 
@@ -67,9 +71,13 @@ export interface IModuleMinificationSuccessResult {
    */
   code: string;
   /**
-   * Marker property to always return the same result shape.
+   * The decoded source map, if present
    */
-  map?: RawSourceMap;
+  decodedMap?: object | undefined;
+  /**
+   * The encoded source map, if present
+   */
+  map?: RawSourceMap | undefined;
 }
 
 /**

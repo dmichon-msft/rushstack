@@ -3,12 +3,20 @@
   "$schema": "https://developer.microsoft.com/json-schemas/rush/v5/approved-packages.schema.json",
   "packages": [
     {
+      "name": "@ampproject/remapping",
+      "allowedCategories": [ "libraries" ]
+    },
+    {
       "name": "@fluentui/react",
       "allowedCategories": [ "libraries", "vscode-extensions" ]
     },
     {
       "name": "@fluentui/react-components",
       "allowedCategories": [ "vscode-extensions" ]
+    },
+    {
+      "name": "@jridgewell/source-map",
+      "allowedCategories": [ "libraries" ]
     },
     {
       "name": "@lifaon/path",

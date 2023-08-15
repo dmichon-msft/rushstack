@@ -36,6 +36,11 @@ export interface IWorkerPoolMinifierOptions {
    * If true, log to the console about the minification results.
    */
   verbose?: boolean;
+
+  /**
+   * If true, keep source maps in decoded format. This signficantly improves performance, but may increase memory usage.
+   */
+  useDecodedMap?: boolean;
 }
 
 /**
@@ -62,7 +67,7 @@ export class WorkerPoolMinifier implements IModuleMinifier {
     const terserPool: WorkerPool = new WorkerPool({
       id: 'Minifier',
       maxWorkers: maxThreads,
-      workerData: terserOptions,
+      workerData: options,
       workerScriptPath: require.resolve('./MinifierWorker')
     });
 
@@ -144,6 +149,7 @@ export class WorkerPoolMinifier implements IModuleMinifier {
             hash,
             error,
             code: undefined,
+            decodedMap: undefined,
             map: undefined
           });
         }

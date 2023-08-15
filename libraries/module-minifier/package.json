@@ -16,9 +16,9 @@
     "_phase:test": "heft run --only test -- --clean"
   },
   "dependencies": {
+    "@jridgewell/source-map": "0.3.5",
     "@rushstack/worker-pool": "workspace:*",
     "serialize-javascript": "6.0.0",
-    "source-map": "~0.7.3",
     "terser": "^5.9.0"
   },
   "devDependencies": {
