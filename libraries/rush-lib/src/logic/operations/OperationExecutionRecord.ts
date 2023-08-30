@@ -29,6 +29,11 @@ export interface IOperationExecutionRecordContext {
  */
 export class OperationExecutionRecord implements IOperationRunnerContext {
   /**
+   * The associated operation.
+   */
+  public readonly operation: Operation;
+
+  /**
    * The current execution status of an operation. Operations start in the 'ready' state,
    * but can be 'blocked' if an upstream operation failed. It is 'executing' when
    * the operation is executing. Once execution is complete, it is either 'success' or
@@ -91,7 +96,9 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
   public readonly weight: number;
   public readonly associatedPhase: IPhase | undefined;
   public readonly associatedProject: RushConfigurationProject | undefined;
-  public readonly _operationMetadataManager: OperationMetadataManager | undefined;
+
+  public nonCachedDurationMs: number | undefined;
+  public cobuildRunnerId: string | undefined;
 
   private readonly _context: IOperationExecutionRecordContext;
 
@@ -106,16 +113,13 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
       );
     }
 
+    this.operation = operation;
     this.runner = runner;
     this.weight = operation.weight;
     this.associatedPhase = associatedPhase;
     this.associatedProject = associatedProject;
-    if (operation.associatedPhase && operation.associatedProject) {
-      this._operationMetadataManager = new OperationMetadataManager({
-        phase: operation.associatedPhase,
-        rushProject: operation.associatedProject
-      });
-    }
+    this.nonCachedDurationMs = undefined;
+    this.cobuildRunnerId = undefined;
     this._context = context;
   }
 
@@ -143,16 +147,6 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
     return this._collatedWriter;
   }
 
-  public get nonCachedDurationMs(): number | undefined {
-    // Lazy calculated because the state file is created/restored later on
-    return this._operationMetadataManager?.stateFile.state?.nonCachedDurationMs;
-  }
-
-  public get cobuildRunnerId(): string | undefined {
-    // Lazy calculated because the state file is created/restored later on
-    return this._operationMetadataManager?.stateFile.state?.cobuildRunnerId;
-  }
-
   public async executeAsync({
     onStart,
     onResult
@@ -174,6 +168,7 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
         this.status = earlyReturnStatus;
       } else {
         this.status = await this.runner.executeAsync(this);
+        this.nonCachedDurationMs = this.stopwatch.duration;
       }
       // Delegate global state reporting
       await onResult(this);

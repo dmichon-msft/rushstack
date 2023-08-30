@@ -5,7 +5,6 @@ import type { StdioSummarizer } from '@rushstack/terminal';
 import type { CollatedWriter } from '@rushstack/stream-collator';
 
 import type { OperationStatus } from './OperationStatus';
-import type { OperationMetadataManager } from './OperationMetadataManager';
 import type { IStopwatchResult } from '../../utilities/Stopwatch';
 
 /**
@@ -30,12 +29,6 @@ export interface IOperationRunnerContext {
    * Object used to report a summary at the end of the Rush invocation.
    */
   stdioSummarizer: StdioSummarizer;
-  /**
-   * Object used to manage metadata of the operation.
-   *
-   * @internal
-   */
-  _operationMetadataManager?: OperationMetadataManager;
   /**
    * Object used to track elapsed time.
    */
@@ -77,6 +70,11 @@ export interface IOperationRunner {
   readonly name: string;
 
   /**
+   * Whether or not the operation is cacheable. If false, all cache engines will be disabled for this operation.
+   */
+  cacheable: boolean;
+
+  /**
    * Indicates that this runner's duration has meaning.
    */
   reportTiming: boolean;
@@ -93,12 +91,12 @@ export interface IOperationRunner {
   warningsAreAllowed: boolean;
 
   /**
-   * Full shell command string to run by this runner.
-   */
-  commandToRun?: string;
-
-  /**
    * Method to be executed for the operation.
    */
   executeAsync(context: IOperationRunnerContext): Promise<OperationStatus>;
+
+  /**
+   * Return a hash of the configuration that affects the operation.
+   */
+  getConfigHash(): string;
 }

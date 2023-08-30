@@ -41,7 +41,7 @@ describe(ProjectBuildCache.name, () => {
         projectRelativeFolder: 'apps/acme-wizard',
         dependencyProjects: []
       } as unknown as RushConfigurationProject,
-      command: 'build',
+      configHash: 'build',
       trackedProjectFiles: options.hasOwnProperty('trackedProjectFiles') ? options.trackedProjectFiles : [],
       projectChangeAnalyzer,
       terminal,
