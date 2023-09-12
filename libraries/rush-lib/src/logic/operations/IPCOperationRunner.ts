@@ -14,13 +14,16 @@ import { OperationStatus } from './OperationStatus';
 import { IOperationRunner, IOperationRunnerContext } from './IOperationRunner';
 import { RushConfiguration } from '../../api/RushConfiguration';
 import { Utilities } from '../../utilities/Utilities';
+import { OperationError } from './OperationError';
+import { once } from 'node:events';
 
-export interface IHeftOperationRunnerOptions {
+export interface IIPCOperationRunnerOptions {
   phase: IPhase;
   project: RushConfigurationProject;
   name: string;
   shellCommand: string;
   warningsAreAllowed: boolean;
+  persist: boolean;
 }
 
 interface IFinishedMessage {
@@ -28,11 +31,31 @@ interface IFinishedMessage {
   status: OperationStatus;
 }
 
+interface IReadyMessage {
+  type: 'ready';
+}
+
+interface IRequestRunMessage {
+  type: 'requestRun';
+  requestor?: string;
+}
+
 function isFinishedMessage(message: unknown): message is IFinishedMessage {
   return typeof message === 'object' && (message as IFinishedMessage).type === 'finished';
 }
 
-export class HeftOperationRunner implements IOperationRunner {
+function isRequestRunMessage(message: unknown): message is IRequestRunMessage {
+  return typeof message === 'object' && (message as IRequestRunMessage).type === 'requestRun';
+}
+
+function isReadyMessage(message: unknown): message is IReadyMessage {
+  return typeof message === 'object' && (message as IReadyMessage).type === 'ready';
+}
+
+/**
+ * Runner that hosts a long-lived process to which it communicates via IPC.
+ */
+export class IPCOperationRunner implements IOperationRunner {
   public readonly name: string;
   public readonly cacheable: boolean = false;
   public readonly reportTiming: boolean = true;
@@ -42,24 +65,29 @@ export class HeftOperationRunner implements IOperationRunner {
   private readonly _rushConfiguration: RushConfiguration;
   private readonly _shellCommand: string;
   private readonly _workingDirectory: string;
-  private _heftProcess: ChildProcess | undefined;
+  private readonly _persist: boolean;
 
-  public constructor(options: IHeftOperationRunnerOptions) {
+  private _ipcProcess: ChildProcess | undefined;
+  private _processReadyPromise: Promise<void> | undefined;
+
+  public constructor(options: IIPCOperationRunnerOptions) {
     this.name = options.name;
     this._rushConfiguration = options.project.rushConfiguration;
     this._shellCommand = options.shellCommand;
     this._workingDirectory = options.project.projectFolder;
+    this._persist = options.persist;
     this.warningsAreAllowed = options.warningsAreAllowed;
   }
 
   public async executeAsync(context: IOperationRunnerContext): Promise<OperationStatus> {
     return await context.withTerminalAsync(
       async (terminal: ITerminal, terminalProvider: ITerminalProvider): Promise<OperationStatus> => {
-        if (!this._heftProcess || typeof this._heftProcess.exitCode === 'number') {
+        let isConnected: boolean = false;
+        if (!this._ipcProcess || typeof this._ipcProcess.exitCode === 'number') {
           // Run the operation
           terminal.writeLine('Invoking: ' + this._shellCommand);
 
-          this._heftProcess = Utilities.executeLifecycleCommandAsync(this._shellCommand, {
+          this._ipcProcess = Utilities.executeLifecycleCommandAsync(this._shellCommand, {
             rushConfiguration: this._rushConfiguration,
             workingDirectory: this._workingDirectory,
             initCwd: this._rushConfiguration.commonTempFolder,
@@ -69,8 +97,24 @@ export class HeftOperationRunner implements IOperationRunner {
             },
             ipc: true
           });
+
+          let resolveReadyPromise!: () => void;
+
+          this._processReadyPromise = new Promise<void>((resolve) => {
+            resolveReadyPromise = resolve;
+          });
+
+          this._ipcProcess.on('message', (message: unknown) => {
+            if (isRequestRunMessage(message)) {
+              // TODO: Handle run requests
+            } else if (isReadyMessage(message)) {
+              resolveReadyPromise();
+            }
+          });
+        } else {
+          terminal.writeLine(`Connecting to existing IPC process...`);
         }
-        const subProcess: ChildProcess = this._heftProcess;
+        const subProcess: ChildProcess = this._ipcProcess;
         let hasWarningOrError: boolean = false;
 
         function onStdout(data: Buffer): void {
@@ -88,26 +132,50 @@ export class HeftOperationRunner implements IOperationRunner {
         subProcess.stderr?.on('data', onStderr);
 
         const status: OperationStatus = await new Promise((resolve, reject) => {
-          function messageHandler(message: unknown): void {
+          function finishHandler(message: unknown): void {
             if (isFinishedMessage(message)) {
               terminal.writeLine('Received finish notification');
-              subProcess.off('message', messageHandler);
               subProcess.stdout?.off('data', onStdout);
               subProcess.stderr?.off('data', onStderr);
+              subProcess.off('message', finishHandler);
               subProcess.off('error', reject);
-              subProcess.off('exit', reject);
-              terminal.writeLine('Disconnected from Heft process');
+              subProcess.off('exit', onExit);
+              terminal.writeLine('Disconnected from IPC process');
               resolve(message.status);
             }
           }
 
-          subProcess.on('message', messageHandler);
-          subProcess.on('error', reject);
-          subProcess.on('exit', reject);
+          function onExit(code: number): void {
+            try {
+              if (code !== 0) {
+                // Do NOT reject here immediately, give a chance for other logic to suppress the error
+                context.error = new OperationError('error', `Returned error code: ${code}`);
+                resolve(OperationStatus.Failure);
+              } else if (hasWarningOrError) {
+                resolve(OperationStatus.SuccessWithWarning);
+              } else {
+                resolve(OperationStatus.Success);
+              }
+            } catch (error) {
+              reject(error as OperationError);
+            }
+          }
 
-          terminal.writeLine('Notifying the Heft process to start the build...');
-          subProcess.send('run');
+          subProcess.on('message', finishHandler);
+          subProcess.on('error', reject);
+          subProcess.on('exit', onExit);
+
+          this._processReadyPromise!.then(() => {
+            isConnected = true;
+            terminal.writeLine('Child supports IPC protocol. Sending "run" command...');
+            subProcess.send('run');
+          }, reject);
         });
+
+        if (isConnected && !this._persist && typeof subProcess.exitCode !== 'number') {
+          subProcess.send('exit');
+          await once(subProcess, 'exit');
+        }
 
         return status === OperationStatus.Success && hasWarningOrError
           ? OperationStatus.SuccessWithWarning

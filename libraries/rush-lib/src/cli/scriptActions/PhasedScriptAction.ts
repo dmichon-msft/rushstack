@@ -349,9 +349,9 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
       if (isWatch) {
         new (
           await import(
-            /* webpackChunkName: 'HeftOperationRunnerPlugin' */ '../../logic/operations/HeftOperationRunnerPlugin'
+            /* webpackChunkName: 'IPCOperationRunnerPlugin' */ '../../logic/operations/IPCOperationRunnerPlugin'
           )
-        ).HeftOperationRunnerPlugin().apply(this.hooks);
+        ).IPCOperationRunnerPlugin().apply(this.hooks);
       }
 
       const customParametersByName: Map<string, CommandLineParameter> = new Map();
