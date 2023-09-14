@@ -196,7 +196,7 @@ export class ChangeAction extends BaseRushAction {
       return;
     }
 
-    const sortedProjectList: string[] = (await this._getChangedProjectNamesAsync()).sort();
+    const sortedProjectList: string[] = Array.from(await this._getChangedProjectNamesAsync()).sort();
     if (sortedProjectList.length === 0) {
       this._logNoChangeFileRequired();
       this._warnUnstagedChanges();
@@ -339,8 +339,8 @@ export class ChangeAction extends BaseRushAction {
   }
 
   private async _verifyAsync(): Promise<void> {
-    const changedPackages: string[] = await this._getChangedProjectNamesAsync();
-    if (changedPackages.length > 0) {
+    const changedPackages: Set<string> = await this._getChangedProjectNamesAsync();
+    if (changedPackages.size > 0) {
       this._validateChangeFile(changedPackages);
     } else {
       this._logNoChangeFileRequired();
@@ -355,7 +355,7 @@ export class ChangeAction extends BaseRushAction {
     return this._targetBranchName;
   }
 
-  private async _getChangedProjectNamesAsync(): Promise<string[]> {
+  private async _getChangedProjectNamesAsync(): Promise<Set<string>> {
     const projectChangeAnalyzer: ProjectChangeAnalyzer = new ProjectChangeAnalyzer(this.rushConfiguration);
     const changedProjects: Set<RushConfigurationProject> =
       await projectChangeAnalyzer.getChangedProjectsAsync({
@@ -380,12 +380,12 @@ export class ChangeAction extends BaseRushAction {
       }
     }
 
-    return Array.from(changedProjectNames);
+    return changedProjectNames;
   }
 
-  private _validateChangeFile(changedPackages: string[]): void {
+  private _validateChangeFile(changedPackageNames: Set<string>): void {
     const files: string[] = this._getChangeFiles();
-    ChangeFiles.validate(files, changedPackages, this.rushConfiguration);
+    ChangeFiles.validate(files, changedPackageNames, this.rushConfiguration);
   }
 
   private _getChangeFiles(): string[] {

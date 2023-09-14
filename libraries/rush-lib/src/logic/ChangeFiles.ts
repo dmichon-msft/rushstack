@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import { Async, FileSystem, JsonFile, JsonSchema } from '@rushstack/node-core-library';
+import { Async, FileSystem, InternalError, JsonFile, JsonSchema } from '@rushstack/node-core-library';
 
 import { IChangeInfo } from '../api/ChangeManagement';
 import { IChangelog } from '../api/Changelog';
@@ -16,7 +16,7 @@ export class ChangeFiles {
   /**
    * Change file path relative to changes folder.
    */
-  private _files: string[] | undefined;
+  private _filesPromise: Promise<string[]> | undefined;
   private _changesPath: string;
 
   public constructor(changesPath: string) {
@@ -28,20 +28,21 @@ export class ChangeFiles {
    */
   public static validate(
     newChangeFilePaths: string[],
-    changedPackages: string[],
+    changedPackageNames: Set<string>,
     rushConfiguration: RushConfiguration
   ): void {
     const schema: JsonSchema = JsonSchema.fromLoadedObject(schemaJson);
 
     const projectsWithChangeDescriptions: Set<string> = new Set<string>();
-    newChangeFilePaths.forEach((filePath) => {
+    for (const filePath of newChangeFilePaths) {
       console.log(`Found change file: ${filePath}`);
 
       const changeFile: IChangeInfo = JsonFile.loadAndValidate(filePath, schema);
+      const changes: IChangeInfo[] | undefined = changeFile?.changes;
 
       if (rushConfiguration.hotfixChangeEnabled) {
-        if (changeFile && changeFile.changes) {
-          for (const change of changeFile.changes) {
+        if (changes) {
+          for (const change of changes) {
             if (change.type !== 'none' && change.type !== 'hotfix') {
               throw new Error(
                 `Change file ${filePath} specifies a type of '${change.type}' ` +
@@ -52,23 +53,30 @@ export class ChangeFiles {
         }
       }
 
-      if (changeFile && changeFile.changes) {
-        changeFile.changes.forEach((change) => projectsWithChangeDescriptions.add(change.packageName));
+      if (changes) {
+        for (const change of changes) {
+          projectsWithChangeDescriptions.add(change.packageName);
+        }
       } else {
         throw new Error(`Invalid change file: ${filePath}`);
       }
-    });
+    }
 
-    const projectsMissingChangeDescriptions: Set<string> = new Set(changedPackages);
-    projectsWithChangeDescriptions.forEach((name) => projectsMissingChangeDescriptions.delete(name));
+    const projectsMissingChangeDescriptions: Set<string> = new Set(changedPackageNames);
+    for (const packageName of projectsWithChangeDescriptions) {
+      projectsMissingChangeDescriptions.delete(packageName);
+    }
+
     if (projectsMissingChangeDescriptions.size > 0) {
-      const projectsMissingChangeDescriptionsArray: string[] = [];
-      projectsMissingChangeDescriptions.forEach((name) => projectsMissingChangeDescriptionsArray.push(name));
+      const projectsMissingChangeDescriptionsArray: string[] = Array.from(
+        projectsMissingChangeDescriptions,
+        (projectName) => `- ${projectName}`
+      );
       throw new Error(
         [
           'The following projects have been changed and require change descriptions, but change descriptions were not ' +
             'detected for them:',
-          ...projectsMissingChangeDescriptionsArray.map((projectName) => `- ${projectName}`),
+          ...projectsMissingChangeDescriptionsArray,
           'To resolve this error, run "rush change". This will generate change description files that must be ' +
             'committed to source control.'
         ].join('\n')
@@ -77,37 +85,43 @@ export class ChangeFiles {
   }
 
   public static getChangeComments(newChangeFilePaths: string[]): Map<string, string[]> {
-    const changes: Map<string, string[]> = new Map<string, string[]>();
+    const changesByPackage: Map<string, string[]> = new Map<string, string[]>();
 
-    newChangeFilePaths.forEach((filePath) => {
+    for (const filePath of newChangeFilePaths) {
       console.log(`Found change file: ${filePath}`);
-      const changeRequest: IChangeInfo = JsonFile.load(filePath);
-      if (changeRequest && changeRequest.changes) {
-        changeRequest.changes!.forEach((change) => {
-          if (!changes.get(change.packageName)) {
-            changes.set(change.packageName, []);
+      const { changes }: IChangeInfo = JsonFile.load(filePath);
+      if (changes) {
+        for (const { packageName, comment } of changes) {
+          let changesForPackage: string[] | undefined = changesByPackage.get(packageName);
+          if (!changesForPackage) {
+            changesForPackage = [];
+            changesByPackage.set(packageName, changesForPackage);
           }
-          if (change.comment && change.comment.length) {
-            changes.get(change.packageName)!.push(change.comment);
+
+          if (comment?.length) {
+            changesForPackage.push(comment);
           }
-        });
+        }
       } else {
         throw new Error(`Invalid change file: ${filePath}`);
       }
-    });
-    return changes;
+    }
+
+    return changesByPackage;
   }
 
   /**
    * Get the array of absolute paths of change files.
    */
   public async getFilesAsync(): Promise<string[]> {
-    if (!this._files) {
-      const { default: glob } = await import('fast-glob');
-      this._files = (await glob('**/*.json', { cwd: this._changesPath, absolute: true })) || [];
+    if (!this._filesPromise) {
+      this._filesPromise = (async () => {
+        const { default: glob } = await import('fast-glob');
+        return (await glob('**/*.json', { cwd: this._changesPath, absolute: true })) ?? [];
+      })();
     }
 
-    return this._files;
+    return this._filesPromise;
   }
 
   /**
@@ -123,24 +137,20 @@ export class ChangeFiles {
   public async deleteAllAsync(shouldDelete: boolean, updatedChangelogs?: IChangelog[]): Promise<number> {
     if (updatedChangelogs) {
       // Skip changes files if the package's change log is not updated.
-      const packagesToInclude: Set<string> = new Set<string>();
-      updatedChangelogs.forEach((changelog) => {
+      const packagesToInclude: Set<string> = new Set();
+      for (const changelog of updatedChangelogs) {
         packagesToInclude.add(changelog.name);
-      });
+      }
 
       const files: string[] = await this.getFilesAsync();
       const filesToDelete: string[] = [];
       await Async.forEachAsync(
         files,
         async (filePath) => {
-          const changeRequest: IChangeInfo = await JsonFile.loadAsync(filePath);
-          let shouldDelete: boolean = true;
-          for (const changeInfo of changeRequest.changes!) {
-            if (!packagesToInclude.has(changeInfo.packageName)) {
-              shouldDelete = false;
-              break;
-            }
-          }
+          const { changes }: IChangeInfo = await JsonFile.loadAsync(filePath);
+          const shouldDelete: boolean = !changes?.some(
+            (changeInfo) => !packagesToInclude.has(changeInfo.packageName)
+          );
 
           if (shouldDelete) {
             filesToDelete.push(filePath);
