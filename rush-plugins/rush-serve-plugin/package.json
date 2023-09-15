@@ -41,7 +41,7 @@
   },
   "exports": {
     ".": {
-      "require": "./lib/index.js",
+      "require": "./lib-commonjs/index.js",
       "types": "./dist/rush-serve-plugin.d.ts"
     },
     "./api": {
@@ -54,7 +54,7 @@
         "dist/rush-serve-plugin.d.ts"
       ],
       "api": [
-        "lib/api.types.d.ts"
+        "lib-commonjs/api.types.d.ts"
       ]
     }
   }

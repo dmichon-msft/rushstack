@@ -1,0 +1,20 @@
+{
+  "$schema": "../../../rush-plugins/rush-serve-plugin/src/schemas/rush-serve-plugin-options.schema.json",
+
+  "phasedCommands": ["start"],
+  "buildStatusWebSocketPath": "/",
+  "portParameterLongName": "--port",
+
+  "globalRouting": [
+    {
+      "immutable": false,
+      "servePath": "/",
+      "workspaceRelativeFile": "common/config/status-dashboard/index.html"
+    },
+    {
+      "immutable": false,
+      "servePath": "/_api/",
+      "workspaceRelativeFolder": "common/config/status-dashboard"
+    }
+  ]
+}
