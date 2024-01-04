@@ -414,6 +414,12 @@ export class PhasedScriptAction extends BaseScriptAction<IPhasedCommandConfig> {
         },
         onOperationStatusChanged: (record: OperationExecutionRecord) => {
           this.hooks.onOperationStatusChanged.call(record);
+        },
+
+        // Keep the entire output of the operation.
+        stdioSummarizerOptions: {
+          leadingLines: Infinity,
+          trailingLines: 0
         }
       };
 

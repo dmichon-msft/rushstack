@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 // See LICENSE in the project root for license information.
 
-import { StdioSummarizer } from '@rushstack/terminal';
+import { type IStdioSummarizerOptions, StdioSummarizer } from '@rushstack/terminal';
 import { InternalError } from '@rushstack/node-core-library';
 import type { CollatedWriter, StreamCollator } from '@rushstack/stream-collator';
 
@@ -16,6 +16,7 @@ import type { RushConfigurationProject } from '../../api/RushConfigurationProjec
 export interface IOperationExecutionRecordContext {
   streamCollator: StreamCollator;
   onOperationStatusChanged?: (record: OperationExecutionRecord) => void;
+  stdioSummarizerOptions?: IStdioSummarizerOptions;
 
   debugMode: boolean;
   quietMode: boolean;
@@ -82,7 +83,7 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
   public readonly consumers: Set<OperationExecutionRecord> = new Set();
 
   public readonly stopwatch: Stopwatch = new Stopwatch();
-  public readonly stdioSummarizer: StdioSummarizer = new StdioSummarizer();
+  public readonly stdioSummarizer: StdioSummarizer;
 
   public readonly runner: IOperationRunner;
   public readonly weight: number;
@@ -109,14 +110,15 @@ export class OperationExecutionRecord implements IOperationRunnerContext {
     this.weight = operation.weight;
     this.associatedPhase = associatedPhase;
     this.associatedProject = associatedProject;
+    this.stdioSummarizer = new StdioSummarizer(context.stdioSummarizerOptions);
+    this._context = context;
+    this._status = operation.dependencies.size > 0 ? OperationStatus.Waiting : OperationStatus.Ready;
     if (operation.associatedPhase && operation.associatedProject) {
       this._operationMetadataManager = new OperationMetadataManager({
         phase: operation.associatedPhase,
         rushProject: operation.associatedProject
       });
     }
-    this._context = context;
-    this._status = operation.dependencies.size > 0 ? OperationStatus.Waiting : OperationStatus.Ready;
   }
 
   public get name(): string {

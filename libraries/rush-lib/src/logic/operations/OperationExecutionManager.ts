@@ -2,7 +2,12 @@
 // See LICENSE in the project root for license information.
 
 import colors from 'colors/safe';
-import { type TerminalWritable, StdioWritable, TextRewriterTransform } from '@rushstack/terminal';
+import {
+  type TerminalWritable,
+  StdioWritable,
+  TextRewriterTransform,
+  type IStdioSummarizerOptions
+} from '@rushstack/terminal';
 import { StreamCollator, type CollatedTerminal, type CollatedWriter } from '@rushstack/stream-collator';
 import { NewlineKind, Async, InternalError } from '@rushstack/node-core-library';
 
@@ -28,6 +33,8 @@ export interface IOperationExecutionManagerOptions {
   afterExecuteOperation?: (operation: OperationExecutionRecord) => Promise<void>;
   onOperationStatusChanged?: (record: OperationExecutionRecord) => void;
   beforeExecuteOperations?: (records: Map<Operation, OperationExecutionRecord>) => Promise<void>;
+
+  stdioSummarizerOptions?: IStdioSummarizerOptions;
 }
 
 /**
@@ -49,7 +56,6 @@ const prioritySort: IOperationSortFunction = (
  * tasks are complete, or prematurely fails if any of the tasks fail.
  */
 export class OperationExecutionManager {
-  private readonly _changedProjectsOnly: boolean;
   private readonly _executionRecords: Map<Operation, OperationExecutionRecord>;
   private readonly _quietMode: boolean;
   private readonly _parallelism: number;
@@ -65,7 +71,6 @@ export class OperationExecutionManager {
     operation: OperationExecutionRecord
   ) => Promise<OperationStatus | undefined>;
   private readonly _afterExecuteOperation?: (operation: OperationExecutionRecord) => Promise<void>;
-  private readonly _onOperationStatusChanged?: (record: OperationExecutionRecord) => void;
   private readonly _beforeExecuteOperations?: (
     records: Map<Operation, OperationExecutionRecord>
   ) => Promise<void>;
@@ -85,19 +90,18 @@ export class OperationExecutionManager {
       beforeExecuteOperation,
       afterExecuteOperation,
       onOperationStatusChanged,
-      beforeExecuteOperations
+      beforeExecuteOperations,
+      stdioSummarizerOptions
     } = options;
     this._completedOperations = 0;
     this._quietMode = quietMode;
     this._hasAnyFailures = false;
     this._hasAnyNonAllowedWarnings = false;
-    this._changedProjectsOnly = changedProjectsOnly;
     this._parallelism = parallelism;
 
     this._beforeExecuteOperation = beforeExecuteOperation;
     this._afterExecuteOperation = afterExecuteOperation;
     this._beforeExecuteOperations = beforeExecuteOperations;
-    this._onOperationStatusChanged = onOperationStatusChanged;
 
     // TERMINAL PIPELINE:
     //
@@ -118,6 +122,7 @@ export class OperationExecutionManager {
     // Convert the developer graph to the mutable execution graph
     const executionRecordContext: IOperationExecutionRecordContext = {
       streamCollator: this._streamCollator,
+      stdioSummarizerOptions,
       onOperationStatusChanged,
       debugMode,
       quietMode,

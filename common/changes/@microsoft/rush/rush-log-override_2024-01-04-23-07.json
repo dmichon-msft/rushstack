@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@microsoft/rush",
+      "comment": "Stop truncating log output from failed operations.",
+      "type": "none"
+    }
+  ],
+  "packageName": "@microsoft/rush"
+}
