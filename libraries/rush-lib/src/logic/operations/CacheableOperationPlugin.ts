@@ -54,7 +54,7 @@ export interface IOperationBuildCacheContext {
   projectChangeAnalyzer: ProjectChangeAnalyzer;
   projectBuildCache: ProjectBuildCache | undefined;
   cacheDisabledReason: string | undefined;
-  operationSettings: IOperationSettings | undefined;
+  outputFolderNames: ReadonlyArray<string>;
 
   cobuildLock: CobuildLock | undefined;
 
@@ -123,8 +123,8 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
         }
 
         await Async.forEachAsync(
-          recordByOperation.keys(),
-          async (operation: Operation) => {
+          recordByOperation,
+          async ([operation, record]: [Operation, IOperationExecutionResult]) => {
             const { associatedProject, associatedPhase, runner, settings: operationSettings } = operation;
             if (!associatedProject || !associatedPhase || !runner) {
               return;
@@ -156,6 +156,17 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
 
             disjointSet?.add(operation);
 
+            const { _operationMetadataManager } = record as OperationExecutionRecord;
+            const metadataFolderPath: string | undefined = _operationMetadataManager?.metadataFolderPath;
+
+            const outputFolderNames: string[] = metadataFolderPath ? [metadataFolderPath] : [];
+            const configuredOutputFolderNames: string[] | undefined = operationSettings?.outputFolderNames;
+            if (configuredOutputFolderNames) {
+              for (const folderName of configuredOutputFolderNames) {
+                outputFolderNames.push(folderName);
+              }
+            }
+
             const buildCacheContext: IOperationBuildCacheContext = {
               // Supports cache writes by default for initial operations.
               // Don't write during watch runs for performance reasons (and to avoid flooding the cache)
@@ -163,7 +174,7 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
               isCacheReadAllowed: isIncrementalBuildAllowed,
               projectBuildCache: undefined,
               projectChangeAnalyzer,
-              operationSettings,
+              outputFolderNames,
               cacheDisabledReason,
               cobuildLock: undefined,
               cobuildClusterId: undefined,
@@ -240,7 +251,8 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
           associatedProject: project,
           associatedPhase: phase,
           runner,
-          _operationMetadataManager: operationMetadataManager
+          _operationMetadataManager: operationMetadataManager,
+          operation
         } = record;
 
         if (
@@ -303,7 +315,7 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
                 phase,
                 configHash,
                 terminal: buildCacheTerminal,
-                operationMetadataManager
+                operation
               });
               if (projectBuildCache) {
                 buildCacheTerminal.writeVerboseLine(
@@ -618,15 +630,13 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
         return;
       }
 
-      const { operationSettings, projectChangeAnalyzer } = buildCacheContext;
+      const { settings: operationSettings } = operation;
+      const { projectChangeAnalyzer, outputFolderNames } = buildCacheContext;
       if (!operationSettings || !buildCacheConfiguration) {
         // Unreachable, since this will have set `cacheDisabledReason`.
         return;
       }
 
-      const projectOutputFolderNames: ReadonlyArray<string> = operationSettings.outputFolderNames || [];
-      const additionalProjectOutputFilePaths: ReadonlyArray<string> =
-        operationMetadataManager?.relativeFilepaths || [];
       const additionalContext: Record<string, string> = {};
 
       await updateAdditionalContextAsync({
@@ -640,8 +650,7 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
       // eslint-disable-next-line require-atomic-updates -- This is guaranteed to not be concurrent
       buildCacheContext.projectBuildCache = await ProjectBuildCache.tryGetProjectBuildCacheAsync({
         project: rushProject,
-        projectOutputFolderNames,
-        additionalProjectOutputFilePaths,
+        projectOutputFolderNames: outputFolderNames,
         additionalContext,
         buildCacheConfiguration,
         terminal,
@@ -663,7 +672,7 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
     buildCacheConfiguration,
     cobuildConfiguration,
     phase,
-    operationMetadataManager
+    operation
   }: {
     buildCacheContext: IOperationBuildCacheContext;
     buildCacheConfiguration: BuildCacheConfiguration | undefined;
@@ -672,17 +681,15 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
     phase: IPhase;
     configHash: string;
     terminal: ITerminal;
-    operationMetadataManager: OperationMetadataManager | undefined;
+    operation: Operation;
   }): Promise<ProjectBuildCache | undefined> {
     if (!buildCacheConfiguration?.buildCacheEnabled) {
       return;
     }
 
-    const { operationSettings, projectChangeAnalyzer } = buildCacheContext;
+    const { settings: operationSettings } = operation;
+    const { projectChangeAnalyzer, outputFolderNames } = buildCacheContext;
 
-    const projectOutputFolderNames: ReadonlyArray<string> = operationSettings?.outputFolderNames ?? [];
-    const additionalProjectOutputFilePaths: ReadonlyArray<string> =
-      operationMetadataManager?.relativeFilepaths || [];
     const additionalContext: Record<string, string> = {
       // Force the cache to be a log files only cache
       logFilesOnly: '1'
@@ -704,8 +711,7 @@ export class CacheableOperationPlugin implements IPhasedCommandPlugin {
     const projectBuildCache: ProjectBuildCache | undefined =
       await ProjectBuildCache.tryGetProjectBuildCacheAsync({
         project: rushProject,
-        projectOutputFolderNames,
-        additionalProjectOutputFilePaths,
+        projectOutputFolderNames: outputFolderNames,
         additionalContext,
         buildCacheConfiguration,
         terminal,

@@ -570,6 +570,7 @@ export interface IOperationExecutionResult {
     readonly cobuildRunnerId: string | undefined;
     readonly error: Error | undefined;
     readonly logFilePaths: ILogFilePaths | undefined;
+    readonly metadataFolderPath: string | undefined;
     readonly nonCachedDurationMs: number | undefined;
     readonly operation: Operation;
     readonly status: OperationStatus;
@@ -937,7 +938,7 @@ export class _OperationMetadataManager {
     constructor(options: _IOperationMetadataManagerOptions);
     // (undocumented)
     readonly logFilenameIdentifier: string;
-    get relativeFilepaths(): string[];
+    get metadataFolderPath(): string;
     // (undocumented)
     saveAsync({ durationInSeconds, cobuildContextId, cobuildRunnerId, logPath, errorLogPath, logChunksPath }: _IOperationMetadata): Promise<void>;
     // (undocumented)

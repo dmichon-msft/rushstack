@@ -20,7 +20,6 @@ export interface IProjectBuildCacheOptions {
   buildCacheConfiguration: BuildCacheConfiguration;
   project: RushConfigurationProject;
   projectOutputFolderNames: ReadonlyArray<string>;
-  additionalProjectOutputFilePaths?: ReadonlyArray<string>;
   additionalContext?: Record<string, string>;
   configHash: string;
   projectChangeAnalyzer: ProjectChangeAnalyzer;
@@ -46,7 +45,6 @@ export class ProjectBuildCache {
   private readonly _buildCacheEnabled: boolean;
   private readonly _cacheWriteEnabled: boolean;
   private readonly _projectOutputFolderNames: ReadonlyArray<string>;
-  private readonly _additionalProjectOutputFilePaths: ReadonlyArray<string>;
   private _cacheId: string | undefined;
 
   private constructor(cacheId: string | undefined, options: IProjectBuildCacheOptions) {
@@ -58,8 +56,7 @@ export class ProjectBuildCache {
         cacheWriteEnabled
       },
       project,
-      projectOutputFolderNames,
-      additionalProjectOutputFilePaths
+      projectOutputFolderNames
     } = options;
     this._project = project;
     this._localBuildCacheProvider = localCacheProvider;
@@ -67,7 +64,6 @@ export class ProjectBuildCache {
     this._buildCacheEnabled = buildCacheEnabled;
     this._cacheWriteEnabled = cacheWriteEnabled;
     this._projectOutputFolderNames = projectOutputFolderNames || [];
-    this._additionalProjectOutputFilePaths = additionalProjectOutputFilePaths || [];
     this._cacheId = cacheId;
   }
 
@@ -348,19 +344,6 @@ export class ProjectBuildCache {
       // Symbolic links do not round-trip safely.
       return undefined;
     }
-
-    // Add additional output file paths
-    await Async.forEachAsync(
-      this._additionalProjectOutputFilePaths,
-      async (additionalProjectOutputFilePath: string) => {
-        const fullPath: string = `${projectFolderPath}/${additionalProjectOutputFilePath}`;
-        const pathExists: boolean = await FileSystem.existsAsync(fullPath);
-        if (pathExists) {
-          outputFilePaths.push(additionalProjectOutputFilePath);
-        }
-      },
-      { concurrency: 10 }
-    );
 
     // Ensure stable output path order.
     outputFilePaths.sort();
