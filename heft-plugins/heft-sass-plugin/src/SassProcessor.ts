@@ -609,8 +609,9 @@ export class SassProcessor {
       const url: URL = pathToHeftUrl(absolutePath);
 
       const isPartial: boolean = isSassPartial(absolutePath);
+      const isLocalSourceFile: boolean = !relativePath.startsWith('../');
       // SCSS partials are not modules, insofar as they cannot be imported directly.
-      const isModule: boolean = isPartial ? false : this._isFileModule(absolutePath);
+      const isModule: boolean = isPartial || !isLocalSourceFile ? false : this._isFileModule(absolutePath);
 
       const fileRecord: IFileRecord = {
         absolutePath,
@@ -672,8 +673,10 @@ export class SassProcessor {
     filePath = path.resolve(filePath);
     let record: IFileRecord | undefined = this._fileInfo.get(filePath);
     if (!record) {
+      const relativePath: string = Path.convertToSlashes(path.relative(this._options.buildFolder, filePath));
       const isPartial: boolean = isSassPartial(filePath);
-      const isModule: boolean = isPartial ? false : this._isFileModule(filePath);
+      const isLocalSourceFile: boolean = !relativePath.startsWith('../');
+      const isModule: boolean = isPartial || !isLocalSourceFile ? false : this._isFileModule(filePath);
       const url: URL = pathToHeftUrl(filePath);
       record = {
         absolutePath: filePath,
@@ -681,7 +684,7 @@ export class SassProcessor {
         isPartial,
         isModule,
         index: this._fileInfo.size,
-        relativePath: Path.convertToSlashes(path.relative(this._options.buildFolder, filePath)),
+        relativePath,
         version: '',
         content: undefined,
         cssVersion: undefined,

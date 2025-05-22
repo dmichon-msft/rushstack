@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@rushstack/heft-sass-plugin",
+      "comment": "Exclude external SCSS files from the \"module vs. global\" classifier.",
+      "type": "patch"
+    }
+  ],
+  "packageName": "@rushstack/heft-sass-plugin"
+}
