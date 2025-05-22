@@ -7,10 +7,10 @@
 @use 'sass:color'
 
 // Testing Sass imports using use syntax
-@use 'forwardSyntaxStyles'
+@use '../forwardSyntaxStyles'
 
 // Testing node_modules using use and with syntax
-@use 'utilities/configurableModule' as configuration with ($button-background-color: color.adjust(#6b717f, $red: 15))
+@use '../utilities/configurableModule' as configuration with ($button-background-color: color.adjust(#6b717f, $red: 15))
 
 .exampleAnchor
     @include forwardSyntaxStyles.buttono-block()

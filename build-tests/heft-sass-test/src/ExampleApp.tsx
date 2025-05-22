@@ -3,12 +3,12 @@
 
 import * as React from 'react';
 
-import styles from './styles.module.sass';
-import oldStyles from './stylesCSS.module.css';
-import altSyntaxStyles from './stylesAltSyntax.module.scss';
-import stylesUseSyntax from './stylesUseSyntax.module.sass';
-import stylesUseAltSyntax from './stylesUseAltSyntax.module.scss';
-import './stylesAltSyntax.global.scss';
+import styles from './scss/styles.module.sass';
+import oldStyles from './scss/stylesCSS.module.css';
+import altSyntaxStyles from './scss/stylesAltSyntax.module.scss';
+import stylesUseSyntax from './scss/stylesUseSyntax.module.sass';
+import stylesUseAltSyntax from './scss/stylesUseAltSyntax.module.scss';
+import './scss/stylesAltSyntax.global.scss';
 
 /**
  * This React component renders the application page.

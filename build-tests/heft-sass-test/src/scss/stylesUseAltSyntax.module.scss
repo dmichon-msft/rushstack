@@ -8,10 +8,10 @@
 @use 'sass:list';
 
 // Testing Sass imports using use syntax
-@use 'forwardSyntaxStyles';
+@use '../forwardSyntaxStyles';
 
 // Testing node_modules using use and with syntax
-@use 'utilities/configurableModule' as configuration;
+@use '../utilities/configurableModule' as configuration;
 
 :root {
   --list-margin-top: calc(1.25 * 1rem);
