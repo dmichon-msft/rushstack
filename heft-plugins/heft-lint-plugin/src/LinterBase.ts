@@ -8,7 +8,11 @@ import { FileSystem, JsonFile, Path } from '@rushstack/node-core-library';
 import type { ITerminal } from '@rushstack/terminal';
 import type { IScopedLogger } from '@rushstack/heft';
 
-import type { IExtendedProgram, IExtendedSourceFile } from './internalTypings/TypeScriptInternals';
+import type {
+  IExtendedCompilerOptions,
+  IExtendedProgram,
+  IExtendedSourceFile
+} from './internalTypings/TypeScriptInternals';
 
 export interface ILinterBaseOptions {
   scopedLogger: IScopedLogger;
@@ -80,18 +84,30 @@ export abstract class LinterBase<TLintResult> {
     const startTime: number = performance.now();
     let fileCount: number = 0;
 
-    const commonDirectory: string = options.tsProgram.getCommonSourceDirectory();
+    const { tsProgram } = options;
+    const compilerOptions: IExtendedCompilerOptions = tsProgram.getCompilerOptions();
+    const commonDirectory: string = tsProgram.getCommonSourceDirectory();
+
+    const configFilePath: string = compilerOptions.configFilePath;
+    if (!configFilePath) {
+      throw new Error('The TypeScript compiler options do not specify a "configFilePath".');
+    }
+
+    const normalizedConfigFilePath: string = Path.convertToSlashes(
+      path.resolve(this._buildFolderPath, configFilePath)
+    );
 
     const relativePaths: Map<string, string> = new Map();
 
-    const fileHash: Hash = createHash('md5');
     for (const file of options.typeScriptFilenames) {
       // Need to use relative paths to ensure portability.
       const relative: string = Path.convertToSlashes(path.relative(commonDirectory, file));
       relativePaths.set(file, relative);
-      fileHash.update(relative);
     }
-    const hashSuffix: string = fileHash.digest('base64').replace(/\+/g, '-').replace(/\//g, '_').slice(0, 8);
+    const hashSuffix: string = createHash('md5')
+      .update(normalizedConfigFilePath)
+      .digest('base64url')
+      .slice(0, 8);
 
     const linterCacheVersion: string = await this.getCacheVersionAsync();
     const linterCacheFilePath: string = path.resolve(
