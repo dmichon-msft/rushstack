@@ -1006,6 +1006,11 @@
         stroke: var(--accent);
         stroke-width: 2;
       }
+      .edge.highlight-strong {
+        stroke: var(--accent);
+        stroke-width: 3;
+        filter: drop-shadow(0 0 6px rgba(var(--rgb-accent), 0.3));
+      }
       /* Dim edges that are not executing or failed to de-emphasize passive links */
       .edge.dim {
         opacity: 0.28;
@@ -3122,8 +3127,12 @@
           rec.path.setAttribute('class', 'edge');
           rec.path.setAttribute('marker-end', `url(#arrowhead-${depStatus})`);
           const fromOp = operations.get(rec.from);
-          if (selection.has(rec.to) && selection.has(rec.from)) rec.path.classList.add('highlight');
-          else rec.path.classList.remove('highlight');
+          // Highlight edges connected to any selected node. Stronger highlight when both endpoints selected.
+          rec.path.classList.remove('highlight', 'highlight-strong');
+          const fromSel = selection.has(rec.from);
+          const toSel = selection.has(rec.to);
+          if (fromSel && toSel) rec.path.classList.add('highlight-strong');
+          else if (fromSel || toSel) rec.path.classList.add('highlight');
           // Apply style classes
           rec.path.classList.remove('dashed', 'dotted', 'filtered-out', 'not-running');
           rec.path.classList.remove('filtered-out-search');
@@ -3364,6 +3373,22 @@
           graphMarqueeEl.remove();
           graphMarqueeEl = null;
         }
+        // If we were in replace mode and the drag resulted in an empty selection,
+        // restore the pre-drag selection so accidental deselects don't occur.
+        try {
+          if (preDragSelection && dragModifierMode === 'replace' && selection.size === 0) {
+            selection = new Set(preDragSelection);
+          }
+        } catch (err) {}
+        // record the drag end time so a subsequent click handler can ignore the click
+        try {
+          window.__rushServeLastDrag = Date.now();
+        } catch (e) {}
+        // Notify UI of change and refresh graph/table as needed
+        selectionChanged();
+        if (currentView === 'graph') ensureGraph();
+        else render();
+
         dragStart = null;
         dragLast = null;
         preDragSelection = null;
@@ -3804,6 +3829,39 @@
         if (selection.size) {
           selection.clear();
           render();
+        }
+      });
+      // Clear selection when clicking on empty space — but ignore clicks that are likely
+      // from scrollbar interactions or within interactive controls.
+      window.addEventListener('click', (e) => {
+        try {
+          // Ignore clicks that occur immediately after a drag ended (click fires after mouseup)
+          if (window.__rushServeLastDrag && Date.now() - window.__rushServeLastDrag < 250) return;
+          // If any modifier key is held, don't change selection
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+          // If click target is an interactive control, don't clear selection
+          const interactive = e.target.closest && e.target.closest('button, a, input, select, textarea, .op-node, #terminal, .graph-marquee');
+          if (interactive) return;
+          // Heuristic: if the click clientX is inside a vertical scrollbar area on the right
+          // (browser-dependent), ignore it. We'll compare against the viewport width vs target bounding box.
+          const vw = document.documentElement.clientWidth || window.innerWidth;
+          const scrollbarZoneWidth = 24; // conservative
+          if (e.clientX >= vw - scrollbarZoneWidth) return;
+          // If click target has an explicit scrollbar (overflow), ignore clicks inside its scrollbar zone
+          const el = e.target;
+          if (el && el.getBoundingClientRect) {
+            const rect = el.getBoundingClientRect();
+            const hasVScroll = el.scrollHeight > el.clientHeight;
+            const hasHScroll = el.scrollWidth > el.clientWidth;
+            if (hasVScroll && e.clientX >= rect.right - scrollbarZoneWidth && e.clientX <= rect.right + scrollbarZoneWidth) return;
+            if (hasHScroll && e.clientY >= rect.bottom - scrollbarZoneWidth && e.clientY <= rect.bottom + scrollbarZoneWidth) return;
+          }
+          if (selection.size) {
+            selection.clear();
+            render();
+          }
+        } catch (err) {
+          // ignore
         }
       });
       debugBtn.addEventListener('click', () => {
