@@ -126,7 +126,7 @@ export interface ICertificateGenerationOptions {
    */
   subjectAltNames?: ReadonlyArray<string>;
   /**
-   * The IP Address Subject names to issue the certificate for. Defaults to ['127.0.0.1'].
+   * The IP Address Subject names to issue the certificate for. Defaults to ['127.0.0.1', '::1'].
    */
   subjectIPAddresses?: ReadonlyArray<string>;
   /**
@@ -774,7 +774,10 @@ export class CertificateManager {
           'property and will not work with the latest versions of some browsers.'
       );
     } else {
-      const missingSubjectNames: Set<string> = new Set(optionsWithDefaults.subjectAltNames);
+      const missingSubjectNames: Set<string> = new Set([
+        ...optionsWithDefaults.subjectAltNames,
+        ...optionsWithDefaults.subjectIPAddresses
+      ]);
       for (const altName of altNamesExtension.altNames) {
         missingSubjectNames.delete(isIPAddress(altName) ? altName.ip : altName.value);
       }

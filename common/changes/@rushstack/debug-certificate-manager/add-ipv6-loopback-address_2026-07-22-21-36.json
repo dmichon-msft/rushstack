@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {
+      "packageName": "@rushstack/debug-certificate-manager",
+      "comment": "Add the IPv6 loopback address to the default localhost certificate subject IP addresses.",
+      "type": "minor"
+    }
+  ],
+  "packageName": "@rushstack/debug-certificate-manager"
+}
